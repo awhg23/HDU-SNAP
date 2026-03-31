@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "HDU-SNAP Test Agent",
+  "version": "0.1.0",
+  "description": "HDU-SNAP 前端 Web 页面自动化 UI 测试代理",
+  "permissions": [
+    "tabs",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://skl.hdu.edu.cn/*",
+    "https://skl.hduhelp.com/*",
+    "ws://127.0.0.1:8765/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://skl.hdu.edu.cn/*",
+        "https://skl.hduhelp.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "HDU-SNAP Agent"
+  }
+}

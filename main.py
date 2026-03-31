@@ -1,0 +1,1013 @@
+import asyncio
+import atexit
+import json
+import logging
+import os
+import platform
+import re
+import sqlite3
+import subprocess
+import sys
+import time
+import warnings
+from collections import deque
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"urllib3 v2 only supports OpenSSL 1\.1\.1\+.*LibreSSL.*",
+)
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
+
+try:
+    from urllib3.exceptions import NotOpenSSLWarning
+except Exception:  # pragma: no cover - optional import
+    NotOpenSSLWarning = None
+
+try:
+    from openai import AsyncOpenAI
+except ImportError:  # pragma: no cover - optional dependency in scaffold stage
+    AsyncOpenAI = None  # type: ignore[assignment]
+
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:  # pragma: no cover - optional dependency in scaffold stage
+    SentenceTransformer = None  # type: ignore[assignment]
+
+
+if NotOpenSSLWarning is not None:
+    warnings.filterwarnings("ignore", category=NotOpenSSLWarning)
+
+
+LETTER_ORDER = ("A", "B", "C", "D")
+VECTOR_MARGIN_THRESHOLD = 0.05
+PROJECT_ROOT = Path(__file__).resolve().parent
+DEFAULT_DB_PATH = PROJECT_ROOT / "runtime" / "hdu_snap.db"
+REFERENCE_WORD_CACHE_PATH = PROJECT_ROOT / "CET" / "Data.lexicon.cache.json"
+DEFAULT_EMBEDDING_MODEL = "moka-ai/m3e-base"
+DEFAULT_EMBEDDING_MODEL_DIR = PROJECT_ROOT / ".models" / "moka-ai_m3e-base"
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_MODEL = "deepseek-chat"
+DEFAULT_TARGET_URL = "https://skl.hduhelp.com/?type=5#/english/list"
+FALLBACK_TARGET_URLS = [
+    DEFAULT_TARGET_URL,
+    "https://skl.hdu.edu.cn/#/english/list",
+]
+DEBUG_RECENT_500_PATH = PROJECT_ROOT / "runtime" / "debug_recent_500.json"
+DEBUG_ERROR_100_PATH = PROJECT_ROOT / "runtime" / "debug_error_100.json"
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger("hdu-snap")
+
+app = FastAPI(title="HDU-SNAP Backend", version="0.1.0")
+
+
+class SolveItemPayload(BaseModel):
+    type: str = "solve_item"
+    session_id: Optional[str] = None
+    item_id: int
+    source_text: str
+    options: Dict[str, str]
+
+
+class BatchCompletePayload(BaseModel):
+    type: str = "batch_complete"
+    session_id: Optional[str] = None
+    total_items: int = 100
+
+
+class DecisionResponse(BaseModel):
+    type: str = "decision"
+    session_id: Optional[str] = None
+    item_id: int
+    target: str
+    method: str
+    confidence: Optional[float] = None
+    detail: Optional[str] = None
+
+
+class ErrorResponse(BaseModel):
+    type: str = "error"
+    session_id: Optional[str] = None
+    message: str
+    item_id: Optional[int] = None
+
+
+@dataclass
+class TierDecision:
+    target: str
+    method: str
+    confidence: Optional[float] = None
+    detail: Optional[str] = None
+
+
+@dataclass
+class VectorScore:
+    letter: str
+    text: str
+    score: float
+
+
+@dataclass
+class RunStats:
+    processed_items: int = 0
+    ai_call_count: int = 0
+
+    def record_item(self) -> None:
+        self.processed_items += 1
+
+    def record_ai_call(self) -> None:
+        self.ai_call_count += 1
+
+
+@dataclass
+class RuntimeConfig:
+    mode: str = "normal"
+
+    @property
+    def is_debug(self) -> bool:
+        return self.mode == "debug"
+
+
+class DebugArtifactStore:
+    def __init__(self, recent_path: Path, error_path: Path) -> None:
+        self.recent_path = recent_path
+        self.error_path = error_path
+        self.recent_path.parent.mkdir(parents=True, exist_ok=True)
+        self.recent_questions: deque = deque(self._load_file(self.recent_path), maxlen=500)
+        self.error_questions: deque = deque(self._load_file(self.error_path), maxlen=100)
+
+    def _load_file(self, path: Path) -> List[Dict[str, Any]]:
+        if not path.exists():
+            return []
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(payload, list):
+                return payload
+        except Exception as exc:
+            logger.warning("failed to load debug artifact file %s: %s", path, exc)
+        return []
+
+    def append_recent(self, record: Dict[str, Any]) -> None:
+        self.recent_questions.append(record)
+        self._write_file(self.recent_path, list(self.recent_questions))
+
+    def append_errors(self, records: List[Dict[str, Any]]) -> None:
+        for record in records:
+            self.error_questions.append(record)
+        self._write_file(self.error_path, list(self.error_questions))
+
+    def _write_file(self, path: Path, payload: List[Dict[str, Any]]) -> None:
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+
+runtime_config = RuntimeConfig()
+debug_store = DebugArtifactStore(DEBUG_RECENT_500_PATH, DEBUG_ERROR_100_PATH)
+
+
+def normalize_text(text: str) -> str:
+    text = (text or "").strip().lower()
+    text = re.sub(r"\s+", "", text)
+    text = re.sub(r"[，。；：,.!?！？()（）\[\]{}'\"“”‘’·\-_/\\]", "", text)
+    return text
+
+
+def clean_source_text(text: str) -> str:
+    cleaned = " ".join((text or "").split()).strip()
+    cleaned = re.sub(r"^QUESTION\s*\d+\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^第\s*\d+\s*题[：:.\-\s]*", "", cleaned)
+    cleaned = re.sub(r"^CET\s*[- ]\s*\d+\s+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^(?:CET[- ]?[46])\s+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"(自动下一题|题卡|上一题|下一题).*$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.strip(" .。?？:：;；")
+    return cleaned
+
+
+def clean_option_text(text: str) -> str:
+    cleaned = " ".join((text or "").split()).strip()
+    cleaned = re.sub(r"^[ABCDabcd][.\s:：、\)]\s*", "", cleaned)
+    cleaned = cleaned.strip(" .。?？:：;；")
+    return cleaned
+
+
+def contains_chinese(text: str) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", text or ""))
+
+
+def normalize_chinese_gloss(text: str) -> str:
+    text = normalize_text(text)
+    text = text.replace("；", "，")
+    return text
+
+
+def split_glosses(text: str) -> List[str]:
+    chunks = re.split(r"[，;,；/、]|(?:\s+-\s+)", text or "")
+    cleaned = [normalize_chinese_gloss(chunk) for chunk in chunks if normalize_chinese_gloss(chunk)]
+    return list(dict.fromkeys(cleaned))
+
+
+def cosine_similarity(a: List[float], b: List[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(y * y for y in b) ** 0.5
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def char_ngram_vector(text: str, n: int = 2) -> Dict[str, int]:
+    compact = normalize_chinese_gloss(text)
+    if not compact:
+        return {}
+    if len(compact) < n:
+        return {compact: 1}
+
+    result: Dict[str, int] = {}
+    for index in range(len(compact) - n + 1):
+        gram = compact[index : index + n]
+        result[gram] = result.get(gram, 0) + 1
+    return result
+
+
+def sparse_cosine_similarity(left: Dict[str, int], right: Dict[str, int]) -> float:
+    if not left or not right:
+        return 0.0
+
+    keys = set(left) | set(right)
+    dot = sum(left.get(key, 0) * right.get(key, 0) for key in keys)
+    norm_left = sum(value * value for value in left.values()) ** 0.5
+    norm_right = sum(value * value for value in right.values()) ** 0.5
+    if norm_left == 0 or norm_right == 0:
+        return 0.0
+    return dot / (norm_left * norm_right)
+
+
+def env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in ("0", "false", "no", "off")
+
+
+def maybe_open_target_site() -> None:
+    if not env_flag("HDU_SNAP_AUTO_OPEN_SITE", default=True):
+        logger.info("auto-open target site disabled by HDU_SNAP_AUTO_OPEN_SITE")
+        return
+
+    target_url = os.getenv("HDU_SNAP_TARGET_URL", DEFAULT_TARGET_URL).strip() or DEFAULT_TARGET_URL
+    try:
+        opened = open_url_in_browser(target_url)
+        if opened:
+            logger.info("opened target site in browser: %s", target_url)
+        else:
+            logger.warning("browser did not confirm opening; please open manually: %s", target_url)
+    except Exception as exc:
+        logger.warning("failed to open target site automatically: %s", exc)
+        logger.info("manual target URLs: %s", " | ".join(FALLBACK_TARGET_URLS))
+
+    logger.info("extension will keep listening automatically after login; no terminal confirmation is required")
+    logger.info("after login, enter the English answer page and click the page '开始' button once")
+
+
+def open_url_in_browser(url: str) -> bool:
+    system_name = platform.system()
+
+    if system_name == "Darwin":
+        result = subprocess.run(
+            ["open", url],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return result.returncode == 0
+
+    if system_name == "Windows":
+        try:
+            os.startfile(url)  # type: ignore[attr-defined]
+            return True
+        except Exception:
+            return False
+
+    result = subprocess.run(
+        ["xdg-open", url],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def prompt_runtime_mode() -> None:
+    configured_mode = os.getenv("HDU_SNAP_MODE", "").strip()
+    if configured_mode in ("0", "debug"):
+        runtime_config.mode = "debug"
+        logger.info("runtime mode selected from HDU_SNAP_MODE: debug")
+        return
+    if configured_mode in ("1", "normal"):
+        runtime_config.mode = "normal"
+        logger.info("runtime mode selected from HDU_SNAP_MODE: normal")
+        return
+
+    if not sys.stdin or not sys.stdin.isatty():
+        runtime_config.mode = "normal"
+        logger.info("stdin is not interactive, defaulting runtime mode to normal")
+        return
+
+    while True:
+        print("请选择运行模式：")
+        print("1. 正常模式")
+        print("0. 调试模式")
+        selected = input("请输入 1 或 0：").strip()
+        if selected == "1":
+            runtime_config.mode = "normal"
+            break
+        if selected == "0":
+            runtime_config.mode = "debug"
+            break
+        print("输入无效，请重新输入。")
+
+    logger.info("runtime mode selected: %s", runtime_config.mode)
+    if runtime_config.is_debug:
+        logger.info("debug mode enabled: recent500 -> %s", DEBUG_RECENT_500_PATH)
+        logger.info("debug mode enabled: error100 -> %s", DEBUG_ERROR_100_PATH)
+
+
+class DictionaryEngine:
+    def __init__(self, db_path: Path, cache_path: Path) -> None:
+        self.db_path = db_path
+        self.cache_path = cache_path
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._initialize_database()
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _initialize_database(self) -> None:
+        with self._connect() as conn:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS dictionary_entries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    word TEXT NOT NULL,
+                    normalized_word TEXT NOT NULL,
+                    translation TEXT NOT NULL,
+                    normalized_translation TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    UNIQUE(normalized_word, normalized_translation, source)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_dictionary_word
+                ON dictionary_entries(normalized_word);
+
+                CREATE TABLE IF NOT EXISTS dictionary_aliases (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    normalized_gloss TEXT NOT NULL,
+                    word TEXT NOT NULL,
+                    normalized_word TEXT NOT NULL,
+                    translation TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    UNIQUE(normalized_gloss, normalized_word, source)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_dictionary_alias_gloss
+                ON dictionary_aliases(normalized_gloss);
+                """
+            )
+
+        self._load_cache_file()
+
+    def _load_cache_file(self) -> None:
+        if not self.cache_path.exists():
+            raise FileNotFoundError(f"未找到词库缓存文件：{self.cache_path}")
+
+        payload = json.loads(self.cache_path.read_text(encoding="utf-8"))
+        entries = payload.get("entries", [])
+        records: List[Tuple[str, str, str, str, str]] = []
+        alias_records: List[Tuple[str, str, str, str, str]] = []
+        source_name = self.cache_path.name
+        for item in entries:
+            word = str(item.get("word", "")).strip()
+            if not word:
+                continue
+
+            normalized_word = normalize_text(item.get("normalized_word") or word)
+            raw_meaning = str(item.get("raw_meaning", "")).strip()
+            chinese_terms = [
+                normalize_chinese_gloss(term)
+                for term in item.get("chinese_terms", [])
+                if normalize_chinese_gloss(term)
+            ]
+
+            translation_candidates: List[str] = []
+            if raw_meaning:
+                translation_candidates.append(raw_meaning)
+            if chinese_terms:
+                translation_candidates.append("；".join(chinese_terms))
+
+            for translation in translation_candidates:
+                records.append(
+                    (
+                        word,
+                        normalized_word,
+                        translation,
+                        normalize_chinese_gloss(translation),
+                        source_name,
+                    )
+                )
+
+            alias_values = set(chinese_terms)
+            if raw_meaning:
+                alias_values.add(normalize_chinese_gloss(raw_meaning))
+                alias_values.update(split_glosses(raw_meaning))
+
+            for alias in alias_values:
+                if alias:
+                    alias_records.append(
+                        (
+                            alias,
+                            word,
+                            normalized_word,
+                            raw_meaning or "；".join(chinese_terms),
+                            source_name,
+                        )
+                    )
+
+        with self._connect() as conn:
+            conn.executemany(
+                """
+                INSERT OR IGNORE INTO dictionary_entries
+                    (word, normalized_word, translation, normalized_translation, source)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                records,
+            )
+            conn.executemany(
+                """
+                INSERT OR IGNORE INTO dictionary_aliases
+                    (normalized_gloss, word, normalized_word, translation, source)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                alias_records,
+            )
+            conn.commit()
+
+        logger.info(
+            "dictionary ready from cache file: %s entries loaded into %s",
+            len(entries),
+            self.db_path,
+        )
+
+    def lookup_exact(self, source_text: str, options: Dict[str, str]) -> Optional[TierDecision]:
+        normalized_source = normalize_text(source_text)
+        if not normalized_source:
+            return None
+
+        if contains_chinese(source_text):
+            candidate_map = {letter: normalize_text(text) for letter, text in options.items()}
+            with self._connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT word, translation, source
+                    FROM dictionary_aliases
+                    WHERE normalized_gloss = ?
+                    """,
+                    (normalized_source,),
+                ).fetchall()
+
+            for row in rows:
+                normalized_word = normalize_text(row["word"])
+                for letter, option_text in candidate_map.items():
+                    if option_text == normalized_word:
+                        return TierDecision(
+                            target=letter,
+                            method="字典匹配",
+                            confidence=1.0,
+                            detail=f"{source_text} -> {row['word']} ({row['source']})",
+                        )
+            return None
+
+        candidate_map = {letter: normalize_chinese_gloss(text) for letter, text in options.items()}
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT translation, normalized_translation, source
+                FROM dictionary_entries
+                WHERE normalized_word = ?
+                """,
+                (normalized_source,),
+            ).fetchall()
+
+        for row in rows:
+            translation = row["translation"]
+            normalized_translation = row["normalized_translation"]
+            translation_aliases = {normalized_translation, *split_glosses(translation)}
+            for letter, option_text in candidate_map.items():
+                if option_text in translation_aliases:
+                    return TierDecision(
+                        target=letter,
+                        method="字典匹配",
+                        confidence=1.0,
+                        detail=f"{source_text} -> {translation} ({row['source']})",
+                    )
+
+        return None
+
+    def fetch_translations(self, source_text: str) -> List[str]:
+        normalized_source = normalize_text(source_text)
+        if not normalized_source:
+            return []
+
+        with self._connect() as conn:
+            if contains_chinese(source_text):
+                rows = conn.execute(
+                    """
+                    SELECT DISTINCT word
+                    FROM dictionary_aliases
+                    WHERE normalized_gloss = ?
+                    ORDER BY id ASC
+                    """,
+                    (normalized_source,),
+                ).fetchall()
+                return [str(row["word"]) for row in rows]
+
+            rows = conn.execute(
+                """
+                SELECT DISTINCT translation
+                FROM dictionary_entries
+                WHERE normalized_word = ?
+                ORDER BY id ASC
+                """,
+                (normalized_source,),
+            ).fetchall()
+            return [str(row["translation"]) for row in rows]
+
+
+class VectorEngine:
+    def __init__(self, model_name: str = DEFAULT_EMBEDDING_MODEL, model_dir: Path = DEFAULT_EMBEDDING_MODEL_DIR) -> None:
+        self.model_name = model_name
+        self.model_dir = model_dir
+        self.mode = "fallback"
+        self.status_detail = "using built-in sparse similarity fallback"
+        self.model = self._load_model()
+
+    def _load_model(self) -> Optional[Any]:
+        if SentenceTransformer is None:
+            logger.warning("sentence-transformers is not installed, vector tier will use fallback scorer")
+            self.mode = "fallback"
+            self.status_detail = "sentence-transformers not installed"
+            return None
+
+        configured_dir = os.getenv("HDU_SNAP_EMBEDDING_MODEL_DIR", "").strip()
+        candidate_dir = Path(configured_dir).expanduser() if configured_dir else self.model_dir
+        if not candidate_dir.exists():
+            logger.warning("vector model directory not found, fallback scorer enabled: %s", candidate_dir)
+            self.mode = "fallback"
+            self.status_detail = f"model directory missing: {candidate_dir}"
+            return None
+
+        try:
+            model = SentenceTransformer(str(candidate_dir), local_files_only=True)
+            self.mode = "embedding"
+            self.status_detail = f"loaded local embedding model from {candidate_dir}"
+            logger.info("vector embedding model active: %s", candidate_dir)
+            return model
+        except Exception as exc:  # pragma: no cover - depends on local model/runtime
+            logger.warning(
+                "embedding model unavailable locally, fallback scorer enabled: %s",
+                exc,
+            )
+            self.mode = "fallback"
+            self.status_detail = f"failed to load local model: {exc}"
+            return None
+
+    def rank(self, source_text: str, options: Dict[str, str], dictionary_hints: List[str]) -> List[VectorScore]:
+        reference_text = "；".join(dictionary_hints) if dictionary_hints else source_text
+        if self.model is not None:
+            texts = [reference_text, *[options[letter] for letter in LETTER_ORDER]]
+            embeddings = self.model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+            source_embedding = list(map(float, embeddings[0]))
+            ranked: List[VectorScore] = []
+            for index, letter in enumerate(LETTER_ORDER, start=1):
+                option_embedding = list(map(float, embeddings[index]))
+                ranked.append(
+                    VectorScore(
+                        letter=letter,
+                        text=options[letter],
+                        score=cosine_similarity(source_embedding, option_embedding),
+                    )
+                )
+            return sorted(ranked, key=lambda item: item.score, reverse=True)
+
+        source_vector = char_ngram_vector(reference_text)
+        ranked = [
+            VectorScore(
+                letter=letter,
+                text=option_text,
+                score=sparse_cosine_similarity(source_vector, char_ngram_vector(option_text)),
+            )
+            for letter, option_text in options.items()
+        ]
+        return sorted(ranked, key=lambda item: item.score, reverse=True)
+
+    def choose(
+        self,
+        source_text: str,
+        options: Dict[str, str],
+        dictionary_hints: List[str],
+    ) -> Tuple[Optional[TierDecision], List[VectorScore]]:
+        ranked = self.rank(source_text, options, dictionary_hints)
+        if not ranked:
+            return None, []
+
+        best = ranked[0]
+        second = ranked[1] if len(ranked) > 1 else VectorScore(letter="?", text="", score=0.0)
+        margin = best.score - second.score
+        if margin > VECTOR_MARGIN_THRESHOLD:
+            return (
+                TierDecision(
+                    target=best.letter,
+                    method="向量相似度",
+                    confidence=round(best.score, 4),
+                    detail=f"top={best.score:.4f}, second={second.score:.4f}, margin={margin:.4f}",
+                ),
+                ranked,
+            )
+
+        return None, ranked
+
+
+class LLMEngine:
+    def __init__(
+        self,
+        api_key: Optional[str],
+        base_url: str = DEEPSEEK_BASE_URL,
+        model: str = DEEPSEEK_MODEL,
+        timeout_seconds: float = 12.0,
+        max_retries: int = 2,
+    ) -> None:
+        self.api_key = api_key
+        self.base_url = base_url
+        self.model = model
+        self.timeout_seconds = timeout_seconds
+        self.max_retries = max_retries
+        self.client = self._build_client()
+
+    def _build_client(self) -> Optional[Any]:
+        if not self.api_key:
+            logger.warning("DEEPSEEK_API_KEY is not configured, llm tier will use deterministic fallback")
+            return None
+        if AsyncOpenAI is None:
+            logger.warning("openai package is not installed, llm tier will use deterministic fallback")
+            return None
+        return AsyncOpenAI(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout_seconds)
+
+    async def choose(
+        self,
+        source_text: str,
+        options: Dict[str, str],
+        vector_ranked: List[VectorScore],
+        stats: RunStats,
+    ) -> TierDecision:
+        stats.record_ai_call()
+
+        if self.client is None:
+            best = vector_ranked[0]
+            second_score = vector_ranked[1].score if len(vector_ranked) > 1 else 0.0
+            return TierDecision(
+                target=best.letter,
+                method="大模型决策",
+                confidence=round(best.score, 4),
+                detail=(
+                    "LLM unavailable, fallback to deterministic top-1 candidate "
+                    f"(top={best.score:.4f}, second={second_score:.4f})"
+                ),
+            )
+
+        option_lines = "\n".join(f"{letter}. {options[letter]}" for letter in LETTER_ORDER)
+        prompt = (
+            "你是英文词汇学习题的判题助手。\n"
+            f"源文本: {source_text}\n"
+            f"候选项:\n{option_lines}\n\n"
+            "请从 A/B/C/D 中选择最贴切的翻译项。\n"
+            "只输出一个大写字母，不要解释。"
+        )
+
+        last_error: Optional[Exception] = None
+        for attempt in range(1, self.max_retries + 2):
+            try:
+                completion = await self.client.chat.completions.create(
+                    model=self.model,
+                    temperature=0,
+                    max_tokens=4,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "你是严格的英语翻译选择题助手，只输出 A/B/C/D 单个字母。",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                )
+                content = completion.choices[0].message.content or ""
+                match = re.search(r"[ABCD]", content.upper())
+                if not match:
+                    raise ValueError(f"invalid LLM response: {content!r}")
+                return TierDecision(
+                    target=match.group(0),
+                    method="大模型决策",
+                    detail=f"attempt={attempt}, raw={content.strip()}",
+                )
+            except Exception as exc:  # pragma: no cover - network/runtime dependent
+                last_error = exc
+                logger.warning("llm request failed (attempt %s): %s", attempt, exc)
+                await asyncio.sleep(0.6 * attempt)
+
+        best = vector_ranked[0]
+        second_score = vector_ranked[1].score if len(vector_ranked) > 1 else 0.0
+        return TierDecision(
+            target=best.letter,
+            method="大模型决策",
+            confidence=round(best.score, 4),
+            detail=(
+                "LLM retries exhausted, fallback to deterministic top-1 candidate "
+                f"(top={best.score:.4f}, second={second_score:.4f}, error={last_error})"
+            ),
+        )
+
+
+class NLPPipeline:
+    def __init__(self, dictionary_engine: DictionaryEngine, vector_engine: VectorEngine, llm_engine: LLMEngine, stats: RunStats) -> None:
+        self.dictionary_engine = dictionary_engine
+        self.vector_engine = vector_engine
+        self.llm_engine = llm_engine
+        self.stats = stats
+        self.session_records: List[Dict[str, Any]] = []
+
+    async def solve(self, item_id: int, source_text: str, options: Dict[str, str]) -> TierDecision:
+        dictionary_decision = self.dictionary_engine.lookup_exact(source_text, options)
+        if dictionary_decision is not None:
+            self._print_validation_log(item_id, source_text, options, dictionary_decision)
+            self._record_debug_log(item_id, source_text, options, dictionary_decision)
+            self.stats.record_item()
+            return dictionary_decision
+
+        dictionary_hints = self.dictionary_engine.fetch_translations(source_text)
+        vector_decision, vector_ranked = self.vector_engine.choose(source_text, options, dictionary_hints)
+        if vector_decision is not None:
+            self._print_validation_log(item_id, source_text, options, vector_decision)
+            self._record_debug_log(item_id, source_text, options, vector_decision)
+            self.stats.record_item()
+            return vector_decision
+
+        llm_decision = await self.llm_engine.choose(source_text, options, vector_ranked, self.stats)
+        self._print_validation_log(item_id, source_text, options, llm_decision)
+        self._record_debug_log(item_id, source_text, options, llm_decision)
+        self.stats.record_item()
+        return llm_decision
+
+    def _print_validation_log(self, item_id: int, source_text: str, options: Dict[str, str], decision: TierDecision) -> None:
+        option_line = " | ".join(f"{letter}. {options[letter]}" for letter in LETTER_ORDER)
+        print("[节点校验日志]")
+        print(f"第{item_id}题: {source_text}")
+        print(f"候选项: {option_line}")
+        print(f"处理方式: {decision.method}")
+        print(f"决策结果: {decision.target}")
+        print("------------------------")
+
+    def print_final_summary(self, total_items: int) -> None:
+        print("========================")
+        print("[自动化测试运行结束]")
+        print(f"总计处理测试项: {total_items} 个")
+        print(f"触发大模型 (Tier 3) 决策总次数: {self.stats.ai_call_count} 次")
+        print("状态: 挂起，等待人工确认表单...")
+        print("========================")
+
+    def _record_debug_log(self, item_id: int, source_text: str, options: Dict[str, str], decision: TierDecision) -> None:
+        if not runtime_config.is_debug:
+            return
+
+        record = {
+            "timestamp": int(time.time()),
+            "item_id": item_id,
+            "source_text": source_text,
+            "options": {letter: options[letter] for letter in LETTER_ORDER},
+            "target": decision.target,
+            "method": decision.method,
+            "confidence": decision.confidence,
+            "detail": decision.detail,
+            "vector_mode": self.vector_engine.mode,
+            "vector_status_detail": self.vector_engine.status_detail,
+        }
+        self.session_records.append(record)
+        debug_store.append_recent(record)
+
+    async def collect_debug_feedback(self) -> None:
+        if not runtime_config.is_debug:
+            return
+        if not self.session_records:
+            return
+        if not sys.stdin or not sys.stdin.isatty():
+            logger.info("debug mode feedback skipped because stdin is not interactive")
+            return
+
+        prompt = (
+            "调试模式：请输入本轮答错的题号，多个题号用空格或逗号分隔；"
+            "如果没有错题，直接按回车："
+        )
+        raw = await asyncio.to_thread(input, prompt)
+        raw = raw.strip()
+        if not raw:
+            logger.info("debug mode: no wrong question numbers provided")
+            return
+
+        wrong_ids = []
+        for token in re.split(r"[\s,，]+", raw):
+            if not token:
+                continue
+            if token.isdigit():
+                wrong_ids.append(int(token))
+
+        if not wrong_ids:
+            logger.warning("debug mode: no valid question numbers parsed from input: %s", raw)
+            return
+
+        wrong_id_set = set(wrong_ids)
+        matched = [record for record in self.session_records if record["item_id"] in wrong_id_set]
+        if not matched:
+            logger.warning("debug mode: none of the provided question numbers matched current session logs")
+            return
+
+        debug_store.append_errors(matched)
+        logger.info(
+            "debug mode logs updated: recent500=%s, error100=%s, latest matched errors=%s",
+            len(debug_store.recent_questions),
+            len(debug_store.error_questions),
+            len(matched),
+        )
+        logger.info("recent question log file: %s", DEBUG_RECENT_500_PATH)
+        logger.info("recent error log file: %s", DEBUG_ERROR_100_PATH)
+
+
+class ServiceContainer:
+    def __init__(self) -> None:
+        self.dictionary_engine = DictionaryEngine(
+            db_path=DEFAULT_DB_PATH,
+            cache_path=REFERENCE_WORD_CACHE_PATH,
+        )
+        self.vector_engine = VectorEngine()
+        self.llm_engine = LLMEngine(api_key=os.getenv("DEEPSEEK_API_KEY"))
+
+    def build_pipeline(self) -> NLPPipeline:
+        return NLPPipeline(
+            dictionary_engine=self.dictionary_engine,
+            vector_engine=self.vector_engine,
+            llm_engine=self.llm_engine,
+            stats=RunStats(),
+        )
+
+
+services = ServiceContainer()
+
+
+@app.get("/health")
+async def healthcheck() -> Dict[str, Any]:
+    return {
+        "status": "ok",
+        "runtime_mode": runtime_config.mode,
+        "dictionary_source": str(REFERENCE_WORD_CACHE_PATH),
+        "vector_mode": services.vector_engine.mode,
+        "vector_status_detail": services.vector_engine.status_detail,
+        "vector_model_dir": str(services.vector_engine.model_dir),
+        "timestamp": int(time.time()),
+    }
+
+
+async def send_json(websocket: WebSocket, payload: Union[BaseModel, Dict[str, Any]]) -> None:
+    if isinstance(payload, BaseModel):
+        serializer = getattr(payload, "model_dump", None)
+        await websocket.send_json(serializer() if serializer else payload.dict())
+        return
+    await websocket.send_json(payload)
+
+
+def parse_client_message(payload: Dict[str, Any]) -> Union[SolveItemPayload, BatchCompletePayload]:
+    message_type = payload.get("type", "solve_item")
+    if message_type == "batch_complete":
+        normalized_payload = {
+            "type": message_type,
+            "session_id": payload.get("session_id"),
+            "total_items": payload.get("total_items", 100),
+        }
+        validator = getattr(BatchCompletePayload, "model_validate", None)
+        return validator(normalized_payload) if validator else BatchCompletePayload.parse_obj(normalized_payload)
+
+    options = payload.get("options")
+    if not isinstance(options, dict):
+        raise ValueError("options must be an object containing A/B/C/D")
+
+    normalized_options: Dict[str, str] = {}
+    for letter in LETTER_ORDER:
+        if letter not in options:
+            raise ValueError(f"missing option '{letter}'")
+        option_text = clean_option_text(str(options[letter]))
+        if not option_text:
+            raise ValueError(f"option '{letter}' cannot be empty")
+        normalized_options[letter] = option_text
+
+    normalized_payload = {
+        "type": message_type,
+        "session_id": payload.get("session_id"),
+        "item_id": payload.get("item_id"),
+        "source_text": clean_source_text(str(payload.get("source_text", ""))),
+        "options": normalized_options,
+    }
+    if not normalized_payload["source_text"]:
+        raise ValueError("source_text cannot be empty")
+
+    validator = getattr(SolveItemPayload, "model_validate", None)
+    return validator(normalized_payload) if validator else SolveItemPayload.parse_obj(normalized_payload)
+
+
+@app.websocket("/ws/solve")
+async def solve_socket(websocket: WebSocket) -> None:
+    await websocket.accept()
+    logger.info("websocket connected: %s", websocket.client)
+    pipeline = services.build_pipeline()
+
+    try:
+        while True:
+            raw_message = await websocket.receive_text()
+            try:
+                payload = json.loads(raw_message)
+                parsed_message = parse_client_message(payload)
+            except Exception as exc:
+                await send_json(websocket, ErrorResponse(message=f"invalid payload: {exc}"))
+                continue
+
+            if isinstance(parsed_message, BatchCompletePayload):
+                pipeline.print_final_summary(pipeline.stats.processed_items or parsed_message.total_items)
+                await pipeline.collect_debug_feedback()
+                await send_json(
+                    websocket,
+                    {
+                        "type": "batch_summary",
+                        "session_id": parsed_message.session_id,
+                        "total_items": pipeline.stats.processed_items or parsed_message.total_items,
+                        "ai_call_count": pipeline.stats.ai_call_count,
+                        "status": "pending_manual_confirmation",
+                    },
+                )
+                continue
+
+            try:
+                decision = await pipeline.solve(
+                    item_id=parsed_message.item_id,
+                    source_text=parsed_message.source_text,
+                    options=parsed_message.options,
+                )
+                await send_json(
+                    websocket,
+                    DecisionResponse(
+                        session_id=parsed_message.session_id,
+                        item_id=parsed_message.item_id,
+                        target=decision.target,
+                        method=decision.method,
+                        confidence=decision.confidence,
+                        detail=decision.detail,
+                    ),
+                )
+            except Exception as exc:  # pragma: no cover - safeguard for live websocket session
+                logger.exception("failed to solve item %s", parsed_message.item_id)
+                await send_json(
+                    websocket,
+                    ErrorResponse(
+                        session_id=parsed_message.session_id,
+                        item_id=parsed_message.item_id,
+                        message=f"server error: {exc}",
+                    ),
+                )
+    except WebSocketDisconnect:
+        logger.info("websocket disconnected: %s", websocket.client)
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    prompt_runtime_mode()
+    maybe_open_target_site()
+    uvicorn.run(app, host="127.0.0.1", port=8765, reload=False)
