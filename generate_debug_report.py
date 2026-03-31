@@ -15,7 +15,7 @@ ERROR_PATH = RUNTIME / "debug_error_100.json"
 HTML_PATH = RUNTIME / "debug_report.html"
 SUMMARY_PATH = RUNTIME / "debug_report_summary.json"
 
-METHODS = ("人工规则", "字典匹配", "向量相似度", "大模型决策")
+METHODS = ("补丁规则", "字典匹配", "向量相似度", "大模型决策")
 VECTOR_DETAIL_RE = re.compile(r"top=(\d+\.\d+), second=(\d+\.\d+), margin=(\d+\.\d+)")
 
 
@@ -50,7 +50,7 @@ def parse_vector_detail(row):
 
 
 def count_by_method(rows):
-    counter = Counter(row["method"] for row in rows)
+    counter = Counter(("补丁规则" if row["method"] == "人工规则" else row["method"]) for row in rows)
     return {method: counter.get(method, 0) for method in METHODS}
 
 
@@ -173,12 +173,19 @@ def svg_line_chart(title, points, width=640, height=260):
 def render_error_table(errors):
     rows = []
     for row in errors:
+        wrong_target = row.get("wrong_target") or row.get("target") or ""
+        wrong_option_text = row.get("wrong_option_text") or row.get("options", {}).get(wrong_target, "")
+        correct_target = row.get("correct_target") or ""
+        correct_option_text = row.get("correct_option_text") or row.get("options", {}).get(correct_target, "")
         rows.append(
             "<tr>"
             f"<td>{row['item_id']}</td>"
             f"<td>{row['method']}</td>"
             f"<td>{row['source_text']}</td>"
-            f"<td>{row['target']}</td>"
+            f"<td>{wrong_target}</td>"
+            f"<td>{wrong_option_text}</td>"
+            f"<td>{correct_target}</td>"
+            f"<td>{correct_option_text}</td>"
             f"<td>{json.dumps(row['options'], ensure_ascii=False)}</td>"
             f"<td>{row.get('detail') or ''}</td>"
             "</tr>"
@@ -189,7 +196,7 @@ def render_error_table(errors):
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>题号</th><th>方法</th><th>题目</th><th>选择</th><th>选项</th><th>细节</th></tr>
+            <tr><th>题号</th><th>方法</th><th>题目</th><th>错选</th><th>错选文本</th><th>正选</th><th>正选文本</th><th>选项</th><th>细节</th></tr>
           </thead>
           <tbody>
             %s

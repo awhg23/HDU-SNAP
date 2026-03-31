@@ -60,48 +60,7 @@ FALLBACK_TARGET_URLS = [
 ]
 DEBUG_RECENT_500_PATH = PROJECT_ROOT / "runtime" / "debug_recent_500.json"
 DEBUG_ERROR_100_PATH = PROJECT_ROOT / "runtime" / "debug_error_100.json"
-
-# 人工判定区：
-# 把“词库义项过宽，容易命中错候选”的题目手动填在这里。
-# `source_text` 填题目原文，`answer_text` 填页面上正确选项的文本内容，不要填字母。
-# 模板：
-# {
-#     "source_text": "解决",
-#     "answer_text": "resolve",
-#     "note": "避免字典把“解决”误命中到 dissolve",
-# },
-MANUAL_BROAD_MEANING_RULES: List[Dict[str, str]] = [
-    {
-        "source_text": "伎俩，手段",
-        "answer_text": "dodge",
-        "note": "避免字典把“伎俩，手段”误命中到 strategy",
-    },
-    {
-        "source_text": "离散的",
-        "answer_text": "discrete",
-        "note": "避免字典把“离散的”误命中到 separate",
-    },
-    {
-        "source_text": "overall",
-        "answer_text": "套装",
-        "note": "避免字典把“overall”误命中到 工装裤",
-    },
-    {
-        "source_text": "pitch",
-        "answer_text": "高音",
-        "note": "避免字典把“pitch”误命中到 曲调",
-    },
-    {
-        "source_text": "新闻",
-        "answer_text": "news",
-        "note": "避免字典把“新闻”误命中到 information",
-    },
-    {
-        "source_text": "抑制",
-        "answer_text": "check",
-        "note": "避免字典把“抑制”误命中到 block",
-    },
-]
+PATCH_RULES_PATH = PROJECT_ROOT / "patch_rules.jsonc"
 
 
 logging.basicConfig(
@@ -222,8 +181,131 @@ class DebugArtifactStore:
         )
 
 
-runtime_config = RuntimeConfig()
-debug_store = DebugArtifactStore(DEBUG_RECENT_500_PATH, DEBUG_ERROR_100_PATH)
+class PatchRuleStore:
+    TEMPLATE_PREFIX = """// HDU-SNAP 补丁区
+// 这个文件用于存放已确认错题的补丁规则。
+// 调试模式下，输入“题号:正确选项字母”后，系统会自动把错题补到这里。
+// 也可以手动补充。模板：
+// {
+//   "source_text": "解决",
+//   "answer_text": "resolve",
+//   "wrong_answer_text": "dissolve",
+//   "note": "避免词库命中到 dissolve"
+// }
+"""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._ensure_file()
+        self.rules = self._load_rules()
+
+    def _ensure_file(self) -> None:
+        if self.path.exists():
+            return
+        self.path.write_text(
+            self.TEMPLATE_PREFIX + json.dumps({"rules": []}, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    def _strip_jsonc_comments(self, text: str) -> str:
+        text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+        cleaned_lines = []
+        for line in text.splitlines():
+            if re.match(r"^\s*//", line):
+                continue
+            cleaned_lines.append(line)
+        return "\n".join(cleaned_lines)
+
+    def _load_rules(self) -> List[Dict[str, str]]:
+        self._ensure_file()
+        try:
+            payload = json.loads(self._strip_jsonc_comments(self.path.read_text(encoding="utf-8")) or "{}")
+        except Exception as exc:
+            logger.warning("failed to load patch rules from %s: %s", self.path, exc)
+            return []
+
+        rules = payload.get("rules", []) if isinstance(payload, dict) else payload
+        normalized_rules = []
+        for rule in rules if isinstance(rules, list) else []:
+            if not isinstance(rule, dict):
+                continue
+            source_text = str(rule.get("source_text", "")).strip()
+            answer_text = str(rule.get("answer_text", "")).strip()
+            if not source_text or not answer_text:
+                continue
+            normalized_rules.append(
+                {
+                    "source_text": source_text,
+                    "answer_text": answer_text,
+                    "wrong_answer_text": str(rule.get("wrong_answer_text", "")).strip(),
+                    "note": str(rule.get("note", "")).strip(),
+                }
+            )
+        return normalized_rules
+
+    def get_rules(self) -> List[Dict[str, str]]:
+        return list(self.rules)
+
+    def save(self) -> None:
+        payload = {"rules": self.rules}
+        self.path.write_text(
+            self.TEMPLATE_PREFIX + json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    def upsert_rule(self, source_text: str, answer_text: str, wrong_answer_text: str, note: str) -> None:
+        normalized_source = normalize_text(clean_source_text(source_text))
+        normalized_answer = normalize_text(clean_option_text(answer_text))
+        if not normalized_source or not normalized_answer:
+            return
+
+        new_rule = {
+            "source_text": source_text.strip(),
+            "answer_text": answer_text.strip(),
+            "wrong_answer_text": wrong_answer_text.strip(),
+            "note": note.strip(),
+        }
+
+        for index, rule in enumerate(self.rules):
+            rule_source = normalize_text(clean_source_text(str(rule.get("source_text", ""))))
+            rule_answer = normalize_text(clean_option_text(str(rule.get("answer_text", ""))))
+            if rule_source == normalized_source and rule_answer == normalized_answer:
+                self.rules[index] = new_rule
+                self.save()
+                return
+
+        self.rules.append(new_rule)
+        self.save()
+
+    def seed_defaults(self, rules: List[Dict[str, str]]) -> None:
+        changed = False
+        for rule in rules:
+            source_text = str(rule.get("source_text", "")).strip()
+            answer_text = str(rule.get("answer_text", "")).strip()
+            if not source_text or not answer_text:
+                continue
+            normalized_source = normalize_text(clean_source_text(source_text))
+            normalized_answer = normalize_text(clean_option_text(answer_text))
+            exists = any(
+                normalize_text(clean_source_text(str(existing.get("source_text", "")))) == normalized_source
+                and normalize_text(clean_option_text(str(existing.get("answer_text", "")))) == normalized_answer
+                for existing in self.rules
+            )
+            if exists:
+                continue
+            self.rules.append(
+                {
+                    "source_text": source_text,
+                    "answer_text": answer_text,
+                    "wrong_answer_text": str(rule.get("wrong_answer_text", "")).strip(),
+                    "note": str(rule.get("note", "")).strip(),
+                }
+            )
+            changed = True
+
+        if changed:
+            self.save()
 
 
 def normalize_text(text: str) -> str:
@@ -304,6 +386,51 @@ def sparse_cosine_similarity(left: Dict[str, int], right: Dict[str, int]) -> flo
     if norm_left == 0 or norm_right == 0:
         return 0.0
     return dot / (norm_left * norm_right)
+
+
+runtime_config = RuntimeConfig()
+debug_store = DebugArtifactStore(DEBUG_RECENT_500_PATH, DEBUG_ERROR_100_PATH)
+patch_rule_store = PatchRuleStore(PATCH_RULES_PATH)
+patch_rule_store.seed_defaults(
+    [
+        {
+            "source_text": "伎俩，手段",
+            "answer_text": "dodge",
+            "wrong_answer_text": "strategy",
+            "note": "避免字典把“伎俩，手段”误命中到 strategy",
+        },
+        {
+            "source_text": "离散的",
+            "answer_text": "discrete",
+            "wrong_answer_text": "separate",
+            "note": "避免字典把“离散的”误命中到 separate",
+        },
+        {
+            "source_text": "overall",
+            "answer_text": "套装",
+            "wrong_answer_text": "工装裤",
+            "note": "避免字典把“overall”误命中到 工装裤",
+        },
+        {
+            "source_text": "pitch",
+            "answer_text": "高音",
+            "wrong_answer_text": "曲调",
+            "note": "避免字典把“pitch”误命中到 曲调",
+        },
+        {
+            "source_text": "新闻",
+            "answer_text": "news",
+            "wrong_answer_text": "information",
+            "note": "避免字典把“新闻”误命中到 information",
+        },
+        {
+            "source_text": "抑制",
+            "answer_text": "check",
+            "wrong_answer_text": "block",
+            "note": "避免字典把“抑制”误命中到 block",
+        },
+    ]
+)
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -831,19 +958,27 @@ class LLMEngine:
 
 
 class NLPPipeline:
-    def __init__(self, dictionary_engine: DictionaryEngine, vector_engine: VectorEngine, llm_engine: LLMEngine, stats: RunStats) -> None:
+    def __init__(
+        self,
+        dictionary_engine: DictionaryEngine,
+        vector_engine: VectorEngine,
+        llm_engine: LLMEngine,
+        stats: RunStats,
+        patch_store: PatchRuleStore,
+    ) -> None:
         self.dictionary_engine = dictionary_engine
         self.vector_engine = vector_engine
         self.llm_engine = llm_engine
         self.stats = stats
+        self.patch_store = patch_store
         self.session_records: List[Dict[str, Any]] = []
 
-    def _lookup_manual_override(self, source_text: str, options: Dict[str, str]) -> Optional[TierDecision]:
+    def _lookup_patch_override(self, source_text: str, options: Dict[str, str]) -> Optional[TierDecision]:
         normalized_source = normalize_text(clean_source_text(source_text))
         if not normalized_source:
             return None
 
-        for rule in MANUAL_BROAD_MEANING_RULES:
+        for rule in self.patch_store.get_rules():
             rule_source = normalize_text(clean_source_text(str(rule.get("source_text", ""))))
             if rule_source != normalized_source:
                 continue
@@ -857,24 +992,24 @@ class NLPPipeline:
                 option_text = options.get(letter, "")
                 if normalize_text(clean_option_text(option_text)) == normalized_answer:
                     note = str(rule.get("note", "")).strip()
-                    detail = f"{source_text} -> {option_text} (manual override)"
+                    detail = f"{source_text} -> {option_text} (patch override)"
                     if note:
                         detail = f"{detail}; {note}"
                     return TierDecision(
                         target=letter,
-                        method="人工规则",
+                        method="补丁规则",
                         confidence=1.0,
                         detail=detail,
                     )
         return None
 
     async def solve(self, item_id: int, source_text: str, options: Dict[str, str]) -> TierDecision:
-        manual_decision = self._lookup_manual_override(source_text, options)
-        if manual_decision is not None:
-            self._print_validation_log(item_id, source_text, options, manual_decision)
-            self._record_debug_log(item_id, source_text, options, manual_decision)
+        patch_decision = self._lookup_patch_override(source_text, options)
+        if patch_decision is not None:
+            self._print_validation_log(item_id, source_text, options, patch_decision)
+            self._record_debug_log(item_id, source_text, options, patch_decision)
             self.stats.record_item()
-            return manual_decision
+            return patch_decision
 
         dictionary_result = self.dictionary_engine.lookup_exact(source_text, options)
         if dictionary_result.decision is not None:
@@ -954,41 +1089,95 @@ class NLPPipeline:
             return
 
         prompt = (
-            "调试模式：请输入本轮答错的题号，多个题号用空格或逗号分隔；"
+            "调试模式：请输入本轮答错题的“题号:正确选项字母”，多个用空格或逗号分隔；"
+            "例如 12:B 45:D。"
+            "如果只输题号，系统会继续逐题询问正确选项。"
             "如果没有错题，直接按回车："
         )
         raw = await asyncio.to_thread(input, prompt)
         raw = raw.strip()
         if not raw:
-            logger.info("debug mode: no wrong question numbers provided")
+            logger.info("debug mode: no wrong answers provided")
             return
 
-        wrong_ids = []
+        answer_map: Dict[int, str] = {}
+        pending_ids: List[int] = []
         for token in re.split(r"[\s,，]+", raw):
             if not token:
                 continue
-            if token.isdigit():
-                wrong_ids.append(int(token))
+            match = re.fullmatch(r"(\d+)(?:\s*[:=：>\-]\s*([ABCDabcd]))?", token)
+            if not match:
+                continue
+            item_id = int(match.group(1))
+            correct_target = (match.group(2) or "").upper()
+            if correct_target in LETTER_ORDER:
+                answer_map[item_id] = correct_target
+            else:
+                pending_ids.append(item_id)
 
-        if not wrong_ids:
-            logger.warning("debug mode: no valid question numbers parsed from input: %s", raw)
+        if not answer_map and not pending_ids:
+            logger.warning("debug mode: no valid wrong-answer payload parsed from input: %s", raw)
             return
 
-        wrong_id_set = set(wrong_ids)
-        matched = [record for record in self.session_records if record["item_id"] in wrong_id_set]
+        session_record_map = {record["item_id"]: record for record in self.session_records}
+        for item_id in pending_ids:
+            record = session_record_map.get(item_id)
+            if record is None:
+                continue
+            follow_up = (
+                f"第{item_id}题正确选项是哪个字母？"
+                f" 当前系统选择={record['target']}，候选项={record['options']}："
+            )
+            correct_target = (await asyncio.to_thread(input, follow_up)).strip().upper()
+            if correct_target in LETTER_ORDER:
+                answer_map[item_id] = correct_target
+
+        if not answer_map:
+            logger.warning("debug mode: no correct targets collected")
+            return
+
+        matched = []
+        for item_id, correct_target in answer_map.items():
+            record = session_record_map.get(item_id)
+            if record is None:
+                continue
+            wrong_target = record["target"]
+            enriched_record = dict(record)
+            enriched_record["wrong_target"] = wrong_target
+            enriched_record["wrong_option_text"] = record["options"].get(wrong_target, "")
+            enriched_record["correct_target"] = correct_target
+            enriched_record["correct_option_text"] = record["options"].get(correct_target, "")
+            matched.append(enriched_record)
+
         if not matched:
             logger.warning("debug mode: none of the provided question numbers matched current session logs")
             return
 
         debug_store.append_errors(matched)
+        patch_count = 0
+        for record in matched:
+            self.patch_store.upsert_rule(
+                source_text=record["source_text"],
+                answer_text=record["correct_option_text"],
+                wrong_answer_text=record["wrong_option_text"],
+                note=(
+                    f"调试模式自动补丁: 第{record['item_id']}题, "
+                    f"原方法={record['method']}, "
+                    f"错选={record['wrong_target']}->{record['wrong_option_text']}, "
+                    f"正选={record['correct_target']}->{record['correct_option_text']}"
+                ),
+            )
+            patch_count += 1
         logger.info(
-            "debug mode logs updated: recent500=%s, error100=%s, latest matched errors=%s",
+            "debug mode logs updated: recent500=%s, error100=%s, latest matched errors=%s, patches=%s",
             len(debug_store.recent_questions),
             len(debug_store.error_questions),
             len(matched),
+            patch_count,
         )
         logger.info("recent question log file: %s", DEBUG_RECENT_500_PATH)
         logger.info("recent error log file: %s", DEBUG_ERROR_100_PATH)
+        logger.info("patch rule file: %s", PATCH_RULES_PATH)
 
 
 class ServiceContainer:
@@ -999,6 +1188,7 @@ class ServiceContainer:
         )
         self.vector_engine = VectorEngine()
         self.llm_engine = LLMEngine(api_key=os.getenv("DEEPSEEK_API_KEY"))
+        self.patch_store = patch_rule_store
 
     def build_pipeline(self) -> NLPPipeline:
         return NLPPipeline(
@@ -1006,6 +1196,7 @@ class ServiceContainer:
             vector_engine=self.vector_engine,
             llm_engine=self.llm_engine,
             stats=RunStats(),
+            patch_store=self.patch_store,
         )
 
 
@@ -1018,6 +1209,8 @@ async def healthcheck() -> Dict[str, Any]:
         "status": "ok",
         "runtime_mode": runtime_config.mode,
         "dictionary_source": str(REFERENCE_WORD_CACHE_PATH),
+        "patch_rule_file": str(PATCH_RULES_PATH),
+        "patch_rule_count": len(services.patch_store.get_rules()),
         "vector_mode": services.vector_engine.mode,
         "vector_status_detail": services.vector_engine.status_detail,
         "vector_model_dir": str(services.vector_engine.model_dir),

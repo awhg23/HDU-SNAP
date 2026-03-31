@@ -1,0 +1,56 @@
+// HDU-SNAP 补丁区
+// 这个文件用于存放已确认错题的补丁规则。
+// 调试模式下，输入“题号:正确选项字母”后，系统会自动把错题补到这里。
+// 也可以手动补充。模板：
+// {
+//   "source_text": "解决",
+//   "answer_text": "resolve",
+//   "wrong_answer_text": "dissolve",
+//   "note": "避免词库命中到 dissolve"
+// }
+{
+  "rules": [
+    {
+      "source_text": "伎俩，手段",
+      "answer_text": "dodge",
+      "wrong_answer_text": "strategy",
+      "note": "避免字典把“伎俩，手段”误命中到 strategy"
+    },
+    {
+      "source_text": "离散的",
+      "answer_text": "discrete",
+      "wrong_answer_text": "separate",
+      "note": "避免字典把“离散的”误命中到 separate"
+    },
+    {
+      "source_text": "overall",
+      "answer_text": "套装",
+      "wrong_answer_text": "工装裤",
+      "note": "避免字典把“overall”误命中到 工装裤"
+    },
+    {
+      "source_text": "pitch",
+      "answer_text": "高音",
+      "wrong_answer_text": "曲调",
+      "note": "避免字典把“pitch”误命中到 曲调"
+    },
+    {
+      "source_text": "新闻",
+      "answer_text": "news",
+      "wrong_answer_text": "information",
+      "note": "避免字典把“新闻”误命中到 information"
+    },
+    {
+      "source_text": "抑制",
+      "answer_text": "check",
+      "wrong_answer_text": "block",
+      "note": "避免字典把“抑制”误命中到 block"
+    },
+    {
+      "source_text": "outward",
+      "answer_text": "表面的",
+      "wrong_answer_text": "外向的",
+      "note": "调试模式自动补丁: 第24题, 原方法=大模型决策, 错选=A->外向的, 正选=B->表面的"
+    }
+  ]
+}
