@@ -63,6 +63,24 @@ DEBUG_ERROR_100_PATH = PROJECT_ROOT / "runtime" / "debug_error_100.json"
 PATCH_RULES_PATH = PROJECT_ROOT / "patch_rules.jsonc"
 
 
+def load_local_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("\"'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_local_env_file(PROJECT_ROOT / ".env")
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
