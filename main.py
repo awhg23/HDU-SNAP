@@ -44,7 +44,8 @@ if NotOpenSSLWarning is not None:
 
 
 LETTER_ORDER = ("A", "B", "C", "D")
-VECTOR_MARGIN_THRESHOLD = 0.05
+VECTOR_MARGIN_THRESHOLD = 0.10
+VECTOR_TOP_SCORE_THRESHOLD = 0.78
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = PROJECT_ROOT / "runtime" / "hdu_snap.db"
 REFERENCE_WORD_CACHE_PATH = PROJECT_ROOT / "CET" / "Data.lexicon.cache.json"
@@ -638,7 +639,7 @@ class VectorEngine:
         best = ranked[0]
         second = ranked[1] if len(ranked) > 1 else VectorScore(letter="?", text="", score=0.0)
         margin = best.score - second.score
-        if margin > VECTOR_MARGIN_THRESHOLD:
+        if best.score >= VECTOR_TOP_SCORE_THRESHOLD and margin >= VECTOR_MARGIN_THRESHOLD:
             return (
                 TierDecision(
                     target=best.letter,
