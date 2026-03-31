@@ -315,34 +315,6 @@ function debugLog(...args) {
   console.info("[HDU-SNAP][content]", ...args);
 }
 
-function showSuspendBanner(message) {
-  const existing = document.getElementById("hdu-snap-suspend-banner");
-  if (existing) {
-    existing.textContent = message;
-    return;
-  }
-
-  const banner = document.createElement("div");
-  banner.id = "hdu-snap-suspend-banner";
-  banner.textContent = message;
-  Object.assign(banner.style, {
-    position: "fixed",
-    top: "12px",
-    right: "12px",
-    zIndex: "2147483647",
-    maxWidth: "360px",
-    padding: "10px 12px",
-    borderRadius: "8px",
-    background: "rgba(255, 244, 229, 0.98)",
-    color: "#6c3d00",
-    border: "1px solid #f5c38b",
-    boxShadow: "0 6px 18px rgba(0,0,0,0.15)",
-    fontSize: "13px",
-    lineHeight: "1.5"
-  });
-  document.body.appendChild(banner);
-}
-
 async function safeClick(element, label) {
   if (!(element instanceof HTMLElement)) {
     throw new Error(`missing click target: ${label}`);
@@ -428,7 +400,6 @@ async function handleDecision(payload) {
   if (snapshot.isLastItem) {
     state.suspended = true;
     state.solving = false;
-    showSuspendBanner("HDU-SNAP 已在第 100 题后自动挂起，未点击最终提交按钮，请人工核验后再提交。");
     await finishBatchIfNeeded();
     return;
   }
@@ -436,7 +407,6 @@ async function handleDecision(payload) {
   if (snapshot.submitButton && !snapshot.nextButton) {
     state.suspended = true;
     state.solving = false;
-    showSuspendBanner("检测到提交按钮但未发现下一项按钮，流程已挂起以避免自动提交。");
     return;
   }
 

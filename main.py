@@ -506,8 +506,8 @@ def prompt_runtime_mode() -> None:
 
     while True:
         print("请选择运行模式：")
-        print("1. 正常模式")
         print("0. 调试模式")
+        print("1. 正常模式")
         selected = input("请输入 1 或 0：").strip()
         if selected == "1":
             runtime_config.mode = "normal"

@@ -51,6 +51,12 @@
       "answer_text": "表面的",
       "wrong_answer_text": "外向的",
       "note": "调试模式自动补丁: 第24题, 原方法=大模型决策, 错选=A->外向的, 正选=B->表面的"
+    },
+    {
+      "source_text": "tip",
+      "answer_text": "倾倒",
+      "wrong_answer_text": "轻敲",
+      "note": "调试模式自动补丁: 第79题, 原方法=大模型决策, 错选=A->轻敲, 正选=B->倾倒"
     }
   ]
 }
