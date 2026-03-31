@@ -61,6 +61,48 @@ FALLBACK_TARGET_URLS = [
 DEBUG_RECENT_500_PATH = PROJECT_ROOT / "runtime" / "debug_recent_500.json"
 DEBUG_ERROR_100_PATH = PROJECT_ROOT / "runtime" / "debug_error_100.json"
 
+# 人工判定区：
+# 把“词库义项过宽，容易命中错候选”的题目手动填在这里。
+# `source_text` 填题目原文，`answer_text` 填页面上正确选项的文本内容，不要填字母。
+# 模板：
+# {
+#     "source_text": "解决",
+#     "answer_text": "resolve",
+#     "note": "避免字典把“解决”误命中到 dissolve",
+# },
+MANUAL_BROAD_MEANING_RULES: List[Dict[str, str]] = [
+    {
+        "source_text": "伎俩，手段",
+        "answer_text": "dodge",
+        "note": "避免字典把“伎俩，手段”误命中到 strategy",
+    },
+    {
+        "source_text": "离散的",
+        "answer_text": "discrete",
+        "note": "避免字典把“离散的”误命中到 separate",
+    },
+    {
+        "source_text": "overall",
+        "answer_text": "套装",
+        "note": "避免字典把“overall”误命中到 工装裤",
+    },
+    {
+        "source_text": "pitch",
+        "answer_text": "高音",
+        "note": "避免字典把“pitch”误命中到 曲调",
+    },
+    {
+        "source_text": "新闻",
+        "answer_text": "news",
+        "note": "避免字典把“新闻”误命中到 information",
+    },
+    {
+        "source_text": "抑制",
+        "answer_text": "check",
+        "note": "避免字典把“抑制”误命中到 block",
+    },
+]
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -108,6 +150,13 @@ class TierDecision:
     method: str
     confidence: Optional[float] = None
     detail: Optional[str] = None
+
+
+@dataclass
+class DictionaryLookupResult:
+    decision: Optional["TierDecision"] = None
+    force_tier3: bool = False
+    force_reason: Optional[str] = None
 
 
 @dataclass
@@ -474,10 +523,10 @@ class DictionaryEngine:
             self.db_path,
         )
 
-    def lookup_exact(self, source_text: str, options: Dict[str, str]) -> Optional[TierDecision]:
+    def lookup_exact(self, source_text: str, options: Dict[str, str]) -> DictionaryLookupResult:
         normalized_source = normalize_text(source_text)
         if not normalized_source:
-            return None
+            return DictionaryLookupResult()
 
         if contains_chinese(source_text):
             candidate_map = {letter: normalize_text(text) for letter, text in options.items()}
@@ -491,17 +540,32 @@ class DictionaryEngine:
                     (normalized_source,),
                 ).fetchall()
 
+            matched_letters = set()
+            unique_hit: Optional[Tuple[str, sqlite3.Row]] = None
             for row in rows:
                 normalized_word = normalize_text(row["word"])
                 for letter, option_text in candidate_map.items():
                     if option_text == normalized_word:
-                        return TierDecision(
-                            target=letter,
-                            method="字典匹配",
-                            confidence=1.0,
-                            detail=f"{source_text} -> {row['word']} ({row['source']})",
-                        )
-            return None
+                        matched_letters.add(letter)
+                        if unique_hit is None:
+                            unique_hit = (letter, row)
+
+            if len(matched_letters) >= 2:
+                return DictionaryLookupResult(
+                    force_tier3=True,
+                    force_reason=f"Tier1冲突: 命中多个候选项 {','.join(sorted(matched_letters))}",
+                )
+            if len(matched_letters) == 1 and unique_hit is not None:
+                letter, row = unique_hit
+                return DictionaryLookupResult(
+                    decision=TierDecision(
+                        target=letter,
+                        method="字典匹配",
+                        confidence=1.0,
+                        detail=f"{source_text} -> {row['word']} ({row['source']})",
+                    )
+                )
+            return DictionaryLookupResult()
 
         candidate_map = {letter: normalize_chinese_gloss(text) for letter, text in options.items()}
         with self._connect() as conn:
@@ -514,20 +578,35 @@ class DictionaryEngine:
                 (normalized_source,),
             ).fetchall()
 
+        matched_letters = set()
+        unique_hit: Optional[Tuple[str, sqlite3.Row, str]] = None
         for row in rows:
             translation = row["translation"]
             normalized_translation = row["normalized_translation"]
             translation_aliases = {normalized_translation, *split_glosses(translation)}
             for letter, option_text in candidate_map.items():
                 if option_text in translation_aliases:
-                    return TierDecision(
-                        target=letter,
-                        method="字典匹配",
-                        confidence=1.0,
-                        detail=f"{source_text} -> {translation} ({row['source']})",
-                    )
+                    matched_letters.add(letter)
+                    if unique_hit is None:
+                        unique_hit = (letter, row, translation)
 
-        return None
+        if len(matched_letters) >= 2:
+            return DictionaryLookupResult(
+                force_tier3=True,
+                force_reason=f"Tier1冲突: 命中多个候选项 {','.join(sorted(matched_letters))}",
+            )
+        if len(matched_letters) == 1 and unique_hit is not None:
+            letter, row, translation = unique_hit
+            return DictionaryLookupResult(
+                decision=TierDecision(
+                    target=letter,
+                    method="字典匹配",
+                    confidence=1.0,
+                    detail=f"{source_text} -> {translation} ({row['source']})",
+                )
+            )
+
+        return DictionaryLookupResult()
 
     def fetch_translations(self, source_text: str) -> List[str]:
         normalized_source = normalize_text(source_text)
@@ -759,13 +838,61 @@ class NLPPipeline:
         self.stats = stats
         self.session_records: List[Dict[str, Any]] = []
 
+    def _lookup_manual_override(self, source_text: str, options: Dict[str, str]) -> Optional[TierDecision]:
+        normalized_source = normalize_text(clean_source_text(source_text))
+        if not normalized_source:
+            return None
+
+        for rule in MANUAL_BROAD_MEANING_RULES:
+            rule_source = normalize_text(clean_source_text(str(rule.get("source_text", ""))))
+            if rule_source != normalized_source:
+                continue
+
+            answer_text = str(rule.get("answer_text", "")).strip()
+            normalized_answer = normalize_text(clean_option_text(answer_text))
+            if not normalized_answer:
+                continue
+
+            for letter in LETTER_ORDER:
+                option_text = options.get(letter, "")
+                if normalize_text(clean_option_text(option_text)) == normalized_answer:
+                    note = str(rule.get("note", "")).strip()
+                    detail = f"{source_text} -> {option_text} (manual override)"
+                    if note:
+                        detail = f"{detail}; {note}"
+                    return TierDecision(
+                        target=letter,
+                        method="人工规则",
+                        confidence=1.0,
+                        detail=detail,
+                    )
+        return None
+
     async def solve(self, item_id: int, source_text: str, options: Dict[str, str]) -> TierDecision:
-        dictionary_decision = self.dictionary_engine.lookup_exact(source_text, options)
-        if dictionary_decision is not None:
-            self._print_validation_log(item_id, source_text, options, dictionary_decision)
-            self._record_debug_log(item_id, source_text, options, dictionary_decision)
+        manual_decision = self._lookup_manual_override(source_text, options)
+        if manual_decision is not None:
+            self._print_validation_log(item_id, source_text, options, manual_decision)
+            self._record_debug_log(item_id, source_text, options, manual_decision)
             self.stats.record_item()
-            return dictionary_decision
+            return manual_decision
+
+        dictionary_result = self.dictionary_engine.lookup_exact(source_text, options)
+        if dictionary_result.decision is not None:
+            self._print_validation_log(item_id, source_text, options, dictionary_result.decision)
+            self._record_debug_log(item_id, source_text, options, dictionary_result.decision)
+            self.stats.record_item()
+            return dictionary_result.decision
+
+        if dictionary_result.force_tier3:
+            vector_ranked = self.vector_engine.rank(source_text, options, [])
+            llm_decision = await self.llm_engine.choose(source_text, options, vector_ranked, self.stats)
+            if dictionary_result.force_reason:
+                llm_detail = llm_decision.detail or ""
+                llm_decision.detail = f"{dictionary_result.force_reason}; {llm_detail}".strip("; ")
+            self._print_validation_log(item_id, source_text, options, llm_decision)
+            self._record_debug_log(item_id, source_text, options, llm_decision)
+            self.stats.record_item()
+            return llm_decision
 
         dictionary_hints = self.dictionary_engine.fetch_translations(source_text)
         vector_decision, vector_ranked = self.vector_engine.choose(source_text, options, dictionary_hints)

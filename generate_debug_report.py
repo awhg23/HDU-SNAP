@@ -15,7 +15,7 @@ ERROR_PATH = RUNTIME / "debug_error_100.json"
 HTML_PATH = RUNTIME / "debug_report.html"
 SUMMARY_PATH = RUNTIME / "debug_report_summary.json"
 
-METHODS = ("字典匹配", "向量相似度", "大模型决策")
+METHODS = ("人工规则", "字典匹配", "向量相似度", "大模型决策")
 VECTOR_DETAIL_RE = re.compile(r"top=(\d+\.\d+), second=(\d+\.\d+), margin=(\d+\.\d+)")
 
 
@@ -214,20 +214,26 @@ def build_summary(recent, errors):
         "recent_methods": recent_methods,
         "error_methods": error_methods,
         "session_stats": session_stats,
+        "session_error_points": build_session_error_points({"session_stats": session_stats}, errors),
         "vector_recent": vector_recent,
         "vector_error": vector_error,
     }
 
 
+def build_session_error_points(summary, errors):
+    points = []
+    for session in summary["session_stats"]:
+        count = sum(
+            1
+            for row in errors
+            if session["ts_start"] <= row.get("timestamp", -1) <= session["ts_end"]
+        )
+        points.append({"session_index": session["session_index"], "count": count})
+    return points
+
+
 def write_report(summary, errors):
-    error_counts = [sum(1 for row in errors if row["item_id"] in range(session["item_start"], session["item_end"] + 1)) for session in summary["session_stats"]]
-    session_error_points = [
-        {
-            "session_index": session["session_index"],
-            "count": error_counts[index],
-        }
-        for index, session in enumerate(summary["session_stats"])
-    ]
+    session_error_points = summary.get("session_error_points") or build_session_error_points(summary, errors)
     margin_buckets = {
         "<0.06": sum(1 for m in summary["vector_recent"].get("margins", []) if m < 0.06),
         "<0.08": sum(1 for m in summary["vector_recent"].get("margins", []) if m < 0.08),
