@@ -5,6 +5,7 @@ import logging
 import os
 import platform
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -467,21 +468,31 @@ def maybe_open_target_site() -> None:
     try:
         opened = open_url_in_browser(target_url)
         if opened:
-            logger.info("opened target site in browser: %s", target_url)
+            logger.info("opened target site in Chrome: %s", target_url)
         else:
-            logger.warning("browser did not confirm opening; please open manually: %s", target_url)
+            logger.warning("Chrome did not confirm opening; please open manually in Chrome: %s", target_url)
     except Exception as exc:
         logger.warning("failed to open target site automatically: %s", exc)
         logger.info("manual target URLs: %s", " | ".join(FALLBACK_TARGET_URLS))
 
     logger.info("extension will keep listening automatically after login; no terminal confirmation is required")
-    logger.info("after login, enter the English answer page and click the page '开始' button once")
+    logger.info("correct flow: open in Chrome -> login -> click '开始' once -> backend answers automatically -> submit manually at the end")
 
 
 def open_url_in_browser(url: str) -> bool:
     system_name = platform.system()
 
     if system_name == "Darwin":
+        chrome_apps = ["Google Chrome", "Google Chrome.app", "Chrome"]
+        for app_name in chrome_apps:
+            result = subprocess.run(
+                ["open", "-a", app_name, url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            if result.returncode == 0:
+                return True
         result = subprocess.run(
             ["open", url],
             stdout=subprocess.DEVNULL,
@@ -491,11 +502,42 @@ def open_url_in_browser(url: str) -> bool:
         return result.returncode == 0
 
     if system_name == "Windows":
+        chrome_candidates = [
+            shutil.which("chrome"),
+            shutil.which("chrome.exe"),
+            str(Path(os.getenv("ProgramFiles", "")) / "Google/Chrome/Application/chrome.exe"),
+            str(Path(os.getenv("ProgramFiles(x86)", "")) / "Google/Chrome/Application/chrome.exe"),
+            str(Path(os.getenv("LocalAppData", "")) / "Google/Chrome/Application/chrome.exe"),
+        ]
+        for candidate in chrome_candidates:
+            if not candidate:
+                continue
+            candidate_path = Path(candidate)
+            if candidate_path.exists() or shutil.which(candidate):
+                try:
+                    subprocess.Popen([str(candidate_path if candidate_path.exists() else candidate), url])
+                    return True
+                except Exception:
+                    continue
         try:
             os.startfile(url)  # type: ignore[attr-defined]
             return True
         except Exception:
             return False
+
+    linux_browsers = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]
+    for browser_name in linux_browsers:
+        browser_path = shutil.which(browser_name)
+        if not browser_path:
+            continue
+        result = subprocess.run(
+            [browser_path, url],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode == 0:
+            return True
 
     result = subprocess.run(
         ["xdg-open", url],
