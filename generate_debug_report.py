@@ -10,12 +10,12 @@ from statistics import mean
 
 ROOT = Path(__file__).resolve().parent
 RUNTIME = ROOT / "runtime"
-RECENT_PATH = RUNTIME / "debug_recent_500.json"
-ERROR_PATH = RUNTIME / "debug_error_100.json"
+RECENT_PATH = RUNTIME / "debug_recent_10000.json"
+ERROR_PATH = RUNTIME / "debug_error_1000.json"
 HTML_PATH = RUNTIME / "debug_report.html"
 SUMMARY_PATH = RUNTIME / "debug_report_summary.json"
 
-METHODS = ("补丁规则", "字典匹配", "向量相似度", "大模型决策")
+METHODS = ("补丁规则", "字典匹配", "向量相似度", "大模型决策", "结果页采集")
 VECTOR_DETAIL_RE = re.compile(r"top=(\d+\.\d+), second=(\d+\.\d+), margin=(\d+\.\d+)")
 
 
@@ -30,7 +30,15 @@ def split_sessions(recent_rows):
     current = []
     prev = None
     for row in recent_rows:
-        if prev is not None and row["item_id"] <= prev["item_id"]:
+        current_session_id = row.get("session_id")
+        prev_session_id = prev.get("session_id") if prev else None
+        should_split = False
+        if prev is not None:
+            if current_session_id and prev_session_id and current_session_id != prev_session_id:
+                should_split = True
+            elif row["item_id"] <= prev["item_id"]:
+                should_split = True
+        if should_split:
             sessions.append(current)
             current = []
         current.append(row)
@@ -50,7 +58,14 @@ def parse_vector_detail(row):
 
 
 def count_by_method(rows):
-    counter = Counter(("补丁规则" if row["method"] == "人工规则" else row["method"]) for row in rows)
+    counter = Counter(
+        (
+            "补丁规则"
+            if row["method"] == "人工规则"
+            else row["method"]
+        )
+        for row in rows
+    )
     return {method: counter.get(method, 0) for method in METHODS}
 
 
@@ -61,6 +76,7 @@ def build_session_stats(sessions):
             {
                 "session_index": index,
                 "count": len(rows),
+                "session_id": rows[0].get("session_id"),
                 "item_start": rows[0]["item_id"],
                 "item_end": rows[-1]["item_id"],
                 "ts_start": rows[0]["timestamp"],
@@ -228,14 +244,34 @@ def build_summary(recent, errors):
 
 
 def build_session_error_points(summary, errors):
+    def session_index_for_error(row):
+        row_session_id = row.get("session_id")
+        if row_session_id:
+            for session in summary["session_stats"]:
+                if session.get("session_id") == row_session_id:
+                    return session["session_index"]
+
+        timestamp = row.get("timestamp", -1)
+        sessions = summary["session_stats"]
+        for index, session in enumerate(sessions):
+            next_start = sessions[index + 1]["ts_start"] if index + 1 < len(sessions) else None
+            if timestamp < session["ts_start"]:
+                continue
+            if next_start is None:
+                return session["session_index"]
+            if timestamp < next_start:
+                return session["session_index"]
+        return None
+
+    counts = Counter()
+    for row in errors:
+        session_index = session_index_for_error(row)
+        if session_index is not None:
+            counts[session_index] += 1
+
     points = []
     for session in summary["session_stats"]:
-        count = sum(
-            1
-            for row in errors
-            if session["ts_start"] <= row.get("timestamp", -1) <= session["ts_end"]
-        )
-        points.append({"session_index": session["session_index"], "count": count})
+        points.append({"session_index": session["session_index"], "count": counts.get(session["session_index"], 0)})
     return points
 
 

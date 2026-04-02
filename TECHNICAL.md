@@ -70,19 +70,16 @@ HDU-SNAP/
 
 调试模式会生成：
 
-- `runtime/debug_recent_500.json`
-- `runtime/debug_error_100.json`
+- `runtime/debug_recent_10000.json`
+- `runtime/debug_error_1000.json`
 
-调试模式结束后，你可以输入：
+调试模式下，系统会自动：
 
-```text
-12:B 45:D 79:C
-```
-
-系统会自动：
-
-- 记录错题
-- 补全错选和正选文本
+- 在手动提交后进入历史记录页
+- 自动点开最新记录
+- 自动进入逐题答案页
+- 自动从题卡中读取红色错题
+- 自动补全错选和正选文本
 - 自动写入 `patch_rules.jsonc`
 
 ## 可视化报表

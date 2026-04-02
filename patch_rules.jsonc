@@ -57,6 +57,108 @@
       "answer_text": "倾倒",
       "wrong_answer_text": "轻敲",
       "note": "调试模式自动补丁: 第79题, 原方法=大模型决策, 错选=A->轻敲, 正选=B->倾倒"
+    },
+    {
+      "source_text": "一串",
+      "answer_text": "cluster",
+      "wrong_answer_text": "set",
+      "note": "调试模式自动补丁: 第54题, 原方法=大模型决策, 错选=A->set, 正选=C->cluster"
+    },
+    {
+      "source_text": "独特的",
+      "answer_text": "distinctive",
+      "wrong_answer_text": "distinct",
+      "note": "调试模式自动补丁: 第62题, 原方法=字典匹配, 错选=B->distinct, 正选=D->distinctive"
+    },
+    {
+      "source_text": "诊所",
+      "answer_text": "clinic",
+      "wrong_answer_text": "surgery",
+      "note": "调试模式自动补丁: 第85题, 原方法=大模型决策, 错选=A->surgery, 正选=D->clinic"
+    },
+    {
+      "source_text": "注释",
+      "answer_text": "commentary",
+      "wrong_answer_text": "comment",
+      "note": "调试模式自动补丁: 第68题, 原方法=字典匹配, 错选=D->comment, 正选=C->commentary"
+    },
+    {
+      "source_text": "缓慢而行",
+      "answer_text": "lag",
+      "wrong_answer_text": "jog",
+      "note": "调试模式自动补丁: 第89题, 原方法=大模型决策, 错选=D->jog, 正选=C->lag"
+    },
+    {
+      "source_text": "宇宙的",
+      "answer_text": "cosmic",
+      "wrong_answer_text": "universal",
+      "note": "调试模式自动补丁: 第92题, 原方法=字典匹配, 错选=A->universal, 正选=B->cosmic"
+    },
+    {
+      "source_text": "存款",
+      "answer_text": "savings",
+      "wrong_answer_text": "fund",
+      "note": "结果页自动补丁: 第61题, 错选=D->fund, 正选=B->savings"
+    },
+    {
+      "source_text": "气缸",
+      "answer_text": "cylinder",
+      "wrong_answer_text": "engine",
+      "note": "结果页自动补丁: 第74题, 错选=A->engine, 正选=D->cylinder"
+    },
+    {
+      "source_text": "形成的",
+      "answer_text": "componential",
+      "wrong_answer_text": "composite",
+      "note": "结果页自动补丁: 第11题, 错选=B->composite, 正选=A->componential"
+    },
+    {
+      "source_text": "shepherd",
+      "answer_text": "护送",
+      "wrong_answer_text": "管理",
+      "note": "结果页自动补丁: 第14题, 错选=A->管理, 正选=D->护送"
+    },
+    {
+      "source_text": "毕业文凭",
+      "answer_text": "diploma",
+      "wrong_answer_text": "certificate",
+      "note": "结果页自动补丁: 第31题, 错选=A->certificate, 正选=B->diploma"
+    },
+    {
+      "source_text": "循环",
+      "answer_text": "circulation",
+      "wrong_answer_text": "circle",
+      "note": "结果页自动补丁: 第90题, 错选=C->circle, 正选=B->circulation"
+    },
+    {
+      "source_text": "upset",
+      "answer_text": "使难过",
+      "wrong_answer_text": "使焦虑",
+      "note": "结果页自动补丁: 第76题, 错选=A->使焦虑, 正选=C->使难过"
+    },
+    {
+      "source_text": "round",
+      "answer_text": "环装的",
+      "wrong_answer_text": "旋转的",
+      "note": "结果页自动补丁: 第73题, 错选=D->旋转的, 正选=B->环装的"
+    },
+    {
+      "source_text": "大拇指",
+      "answer_text": "nail",
+      "wrong_answer_text": "finger",
+      "note": "结果页自动补丁: 第57题, 错选=B->finger, 正选=A->nail"
+    },
+    {
+      "source_text": "大拇指",
+      "answer_text": "thumb",
+      "wrong_answer_text": "finger",
+      "note": "结果页自动补丁: 第57题, 错选=B->finger, 正选=D->thumb"
+    },
+    {
+      "source_text": "性情",
+      "answer_text": "disposition",
+      "wrong_answer_text": "temper",
+      "note": "结果页自动补丁: 第92题, 错选=C->temper, 正选=A->disposition"
     }
   ]
 }

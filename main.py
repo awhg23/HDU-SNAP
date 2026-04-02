@@ -59,9 +59,14 @@ FALLBACK_TARGET_URLS = [
     DEFAULT_TARGET_URL,
     "https://skl.hdu.edu.cn/#/english/list",
 ]
-DEBUG_RECENT_500_PATH = PROJECT_ROOT / "runtime" / "debug_recent_500.json"
-DEBUG_ERROR_100_PATH = PROJECT_ROOT / "runtime" / "debug_error_100.json"
+DEBUG_RECENT_10000_PATH = PROJECT_ROOT / "runtime" / "debug_recent_10000.json"
+DEBUG_ERROR_1000_PATH = PROJECT_ROOT / "runtime" / "debug_error_1000.json"
 PATCH_RULES_PATH = PROJECT_ROOT / "patch_rules.jsonc"
+
+LEGACY_DEBUG_PATH_MAPPINGS = (
+    (PROJECT_ROOT / "runtime" / "debug_recent_500.json", DEBUG_RECENT_10000_PATH),
+    (PROJECT_ROOT / "runtime" / "debug_error_100.json", DEBUG_ERROR_1000_PATH),
+)
 
 
 def load_local_env_file(path: Path) -> None:
@@ -91,6 +96,21 @@ logger = logging.getLogger("hdu-snap")
 app = FastAPI(title="HDU-SNAP Backend", version="0.1.0")
 
 
+def migrate_legacy_debug_files() -> None:
+    for old_path, new_path in LEGACY_DEBUG_PATH_MAPPINGS:
+        if not old_path.exists() or new_path.exists():
+            continue
+        try:
+            new_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(old_path), str(new_path))
+            logger.info("migrated legacy debug file: %s -> %s", old_path, new_path)
+        except Exception as exc:
+            logger.warning("failed to migrate legacy debug file %s -> %s: %s", old_path, new_path, exc)
+
+
+migrate_legacy_debug_files()
+
+
 class SolveItemPayload(BaseModel):
     type: str = "solve_item"
     session_id: Optional[str] = None
@@ -103,6 +123,23 @@ class BatchCompletePayload(BaseModel):
     type: str = "batch_complete"
     session_id: Optional[str] = None
     total_items: int = 100
+
+
+class ReviewResultItemPayload(BaseModel):
+    item_id: int
+    source_text: str
+    options: Dict[str, str]
+    wrong_target: str
+    correct_target: str
+    wrong_option_text: str
+    correct_option_text: str
+    method: Optional[str] = None
+
+
+class ReviewResultsPayload(BaseModel):
+    type: str = "review_results"
+    session_id: Optional[str] = None
+    errors: List[ReviewResultItemPayload]
 
 
 class DecisionResponse(BaseModel):
@@ -170,8 +207,8 @@ class DebugArtifactStore:
         self.recent_path = recent_path
         self.error_path = error_path
         self.recent_path.parent.mkdir(parents=True, exist_ok=True)
-        self.recent_questions: deque = deque(self._load_file(self.recent_path), maxlen=500)
-        self.error_questions: deque = deque(self._load_file(self.error_path), maxlen=100)
+        self.recent_questions: deque = deque(self._load_file(self.recent_path), maxlen=10000)
+        self.error_questions: deque = deque(self._load_file(self.error_path), maxlen=1000)
 
     def _load_file(self, path: Path) -> List[Dict[str, Any]]:
         if not path.exists():
@@ -408,7 +445,7 @@ def sparse_cosine_similarity(left: Dict[str, int], right: Dict[str, int]) -> flo
 
 
 runtime_config = RuntimeConfig()
-debug_store = DebugArtifactStore(DEBUG_RECENT_500_PATH, DEBUG_ERROR_100_PATH)
+debug_store = DebugArtifactStore(DEBUG_RECENT_10000_PATH, DEBUG_ERROR_1000_PATH)
 patch_rule_store = PatchRuleStore(PATCH_RULES_PATH)
 patch_rule_store.seed_defaults(
     [
@@ -579,8 +616,8 @@ def prompt_runtime_mode() -> None:
 
     logger.info("runtime mode selected: %s", runtime_config.mode)
     if runtime_config.is_debug:
-        logger.info("debug mode enabled: recent500 -> %s", DEBUG_RECENT_500_PATH)
-        logger.info("debug mode enabled: error100 -> %s", DEBUG_ERROR_100_PATH)
+        logger.info("debug mode enabled: recent10000 -> %s", DEBUG_RECENT_10000_PATH)
+        logger.info("debug mode enabled: error1000 -> %s", DEBUG_ERROR_1000_PATH)
 
 
 class DictionaryEngine:
@@ -1063,18 +1100,18 @@ class NLPPipeline:
                     )
         return None
 
-    async def solve(self, item_id: int, source_text: str, options: Dict[str, str]) -> TierDecision:
+    async def solve(self, item_id: int, source_text: str, options: Dict[str, str], session_id: Optional[str] = None) -> TierDecision:
         patch_decision = self._lookup_patch_override(source_text, options)
         if patch_decision is not None:
             self._print_validation_log(item_id, source_text, options, patch_decision)
-            self._record_debug_log(item_id, source_text, options, patch_decision)
+            self._record_debug_log(item_id, source_text, options, patch_decision, session_id=session_id)
             self.stats.record_item()
             return patch_decision
 
         dictionary_result = self.dictionary_engine.lookup_exact(source_text, options)
         if dictionary_result.decision is not None:
             self._print_validation_log(item_id, source_text, options, dictionary_result.decision)
-            self._record_debug_log(item_id, source_text, options, dictionary_result.decision)
+            self._record_debug_log(item_id, source_text, options, dictionary_result.decision, session_id=session_id)
             self.stats.record_item()
             return dictionary_result.decision
 
@@ -1085,7 +1122,7 @@ class NLPPipeline:
                 llm_detail = llm_decision.detail or ""
                 llm_decision.detail = f"{dictionary_result.force_reason}; {llm_detail}".strip("; ")
             self._print_validation_log(item_id, source_text, options, llm_decision)
-            self._record_debug_log(item_id, source_text, options, llm_decision)
+            self._record_debug_log(item_id, source_text, options, llm_decision, session_id=session_id)
             self.stats.record_item()
             return llm_decision
 
@@ -1093,13 +1130,13 @@ class NLPPipeline:
         vector_decision, vector_ranked = self.vector_engine.choose(source_text, options, dictionary_hints)
         if vector_decision is not None:
             self._print_validation_log(item_id, source_text, options, vector_decision)
-            self._record_debug_log(item_id, source_text, options, vector_decision)
+            self._record_debug_log(item_id, source_text, options, vector_decision, session_id=session_id)
             self.stats.record_item()
             return vector_decision
 
         llm_decision = await self.llm_engine.choose(source_text, options, vector_ranked, self.stats)
         self._print_validation_log(item_id, source_text, options, llm_decision)
-        self._record_debug_log(item_id, source_text, options, llm_decision)
+        self._record_debug_log(item_id, source_text, options, llm_decision, session_id=session_id)
         self.stats.record_item()
         return llm_decision
 
@@ -1120,21 +1157,26 @@ class NLPPipeline:
         print("状态: 挂起，等待人工确认表单...")
         print("========================")
 
-    def _record_debug_log(self, item_id: int, source_text: str, options: Dict[str, str], decision: TierDecision) -> None:
+    def _record_debug_log(
+        self,
+        item_id: int,
+        source_text: str,
+        options: Dict[str, str],
+        decision: TierDecision,
+        session_id: Optional[str] = None,
+    ) -> None:
         if not runtime_config.is_debug:
             return
 
         record = {
             "timestamp": int(time.time()),
+            "session_id": session_id,
             "item_id": item_id,
             "source_text": source_text,
             "options": {letter: options[letter] for letter in LETTER_ORDER},
             "target": decision.target,
             "method": decision.method,
-            "confidence": decision.confidence,
             "detail": decision.detail,
-            "vector_mode": self.vector_engine.mode,
-            "vector_status_detail": self.vector_engine.status_detail,
         }
         self.session_records.append(record)
         debug_store.append_recent(record)
@@ -1229,15 +1271,77 @@ class NLPPipeline:
             )
             patch_count += 1
         logger.info(
-            "debug mode logs updated: recent500=%s, error100=%s, latest matched errors=%s, patches=%s",
+            "debug mode logs updated: recent10000=%s, error1000=%s, latest matched errors=%s, patches=%s",
             len(debug_store.recent_questions),
             len(debug_store.error_questions),
             len(matched),
             patch_count,
         )
-        logger.info("recent question log file: %s", DEBUG_RECENT_500_PATH)
-        logger.info("recent error log file: %s", DEBUG_ERROR_100_PATH)
+        logger.info("recent question log file: %s", DEBUG_RECENT_10000_PATH)
+        logger.info("recent error log file: %s", DEBUG_ERROR_1000_PATH)
         logger.info("patch rule file: %s", PATCH_RULES_PATH)
+
+    def ingest_review_results(self, errors: List[ReviewResultItemPayload], session_id: Optional[str] = None) -> Dict[str, int]:
+        if not errors:
+            return {"errors": 0, "patches": 0}
+
+        record_index = {}
+        for record in self.session_records:
+            record_session_id = record.get("session_id")
+            record_key = (record_session_id, record["item_id"])
+            record_index[record_key] = record
+        for record in debug_store.recent_questions:
+            record_session_id = record.get("session_id")
+            record_key = (record_session_id, record["item_id"])
+            record_index[record_key] = record
+
+        matched = []
+        for error in errors:
+            original_record = record_index.get((session_id, error.item_id)) or record_index.get((None, error.item_id))
+            original_method = original_record.get("method") if original_record else None
+            matched.append(
+                {
+                    "timestamp": int(time.time()),
+                    "session_id": session_id,
+                    "item_id": error.item_id,
+                    "source_text": error.source_text,
+                    "options": {letter: error.options[letter] for letter in LETTER_ORDER},
+                    "target": error.wrong_target,
+                    "method": original_method or error.method or "未知方法",
+                    "detail": (
+                        f"结果页自动采集: 错选={error.wrong_target}->{error.wrong_option_text}, "
+                        f"正选={error.correct_target}->{error.correct_option_text}"
+                    ),
+                    "wrong_target": error.wrong_target,
+                    "wrong_option_text": error.wrong_option_text,
+                    "correct_target": error.correct_target,
+                    "correct_option_text": error.correct_option_text,
+                }
+            )
+
+        debug_store.append_errors(matched)
+        patch_count = 0
+        for record in matched:
+            self.patch_store.upsert_rule(
+                source_text=record["source_text"],
+                answer_text=record["correct_option_text"],
+                wrong_answer_text=record["wrong_option_text"],
+                note=(
+                    f"结果页自动补丁: 第{record['item_id']}题, "
+                    f"错选={record['wrong_target']}->{record['wrong_option_text']}, "
+                    f"正选={record['correct_target']}->{record['correct_option_text']}"
+                ),
+            )
+            patch_count += 1
+
+        logger.info(
+            "review results ingested: errors=%s, patches=%s, error_log=%s, patch_file=%s",
+            len(matched),
+            patch_count,
+            DEBUG_ERROR_1000_PATH,
+            PATCH_RULES_PATH,
+        )
+        return {"errors": len(matched), "patches": patch_count}
 
 
 class ServiceContainer:
@@ -1286,7 +1390,7 @@ async def send_json(websocket: WebSocket, payload: Union[BaseModel, Dict[str, An
     await websocket.send_json(payload)
 
 
-def parse_client_message(payload: Dict[str, Any]) -> Union[SolveItemPayload, BatchCompletePayload]:
+def parse_client_message(payload: Dict[str, Any]) -> Union[SolveItemPayload, BatchCompletePayload, ReviewResultsPayload]:
     message_type = payload.get("type", "solve_item")
     if message_type == "batch_complete":
         normalized_payload = {
@@ -1296,6 +1400,61 @@ def parse_client_message(payload: Dict[str, Any]) -> Union[SolveItemPayload, Bat
         }
         validator = getattr(BatchCompletePayload, "model_validate", None)
         return validator(normalized_payload) if validator else BatchCompletePayload.parse_obj(normalized_payload)
+
+    if message_type == "review_results":
+        raw_errors = payload.get("errors")
+        if not isinstance(raw_errors, list):
+            raise ValueError("errors must be an array")
+
+        normalized_errors = []
+        for raw_error in raw_errors:
+            if not isinstance(raw_error, dict):
+                raise ValueError("each review error must be an object")
+
+            raw_options = raw_error.get("options")
+            if not isinstance(raw_options, dict):
+                raise ValueError("review error options must be an object")
+
+            normalized_options: Dict[str, str] = {}
+            for letter in LETTER_ORDER:
+                if letter not in raw_options:
+                    raise ValueError(f"missing review option '{letter}'")
+                option_text = clean_option_text(str(raw_options[letter]))
+                if not option_text:
+                    raise ValueError(f"review option '{letter}' cannot be empty")
+                normalized_options[letter] = option_text
+
+            wrong_target = str(raw_error.get("wrong_target", "")).upper()
+            correct_target = str(raw_error.get("correct_target", "")).upper()
+            if wrong_target not in LETTER_ORDER or correct_target not in LETTER_ORDER:
+                raise ValueError("wrong_target and correct_target must be one of A/B/C/D")
+
+            source_text = clean_source_text(str(raw_error.get("source_text", "")))
+            wrong_option_text = clean_option_text(str(raw_error.get("wrong_option_text", "")))
+            correct_option_text = clean_option_text(str(raw_error.get("correct_option_text", "")))
+            if not source_text or not wrong_option_text or not correct_option_text:
+                raise ValueError("review source_text and option texts cannot be empty")
+
+            normalized_errors.append(
+                {
+                    "item_id": int(raw_error.get("item_id")),
+                    "source_text": source_text,
+                    "options": normalized_options,
+                    "wrong_target": wrong_target,
+                    "correct_target": correct_target,
+                    "wrong_option_text": wrong_option_text,
+                    "correct_option_text": correct_option_text,
+                    "method": str(raw_error.get("method", "")).strip() or None,
+                }
+            )
+
+        normalized_payload = {
+            "type": message_type,
+            "session_id": payload.get("session_id"),
+            "errors": normalized_errors,
+        }
+        validator = getattr(ReviewResultsPayload, "model_validate", None)
+        return validator(normalized_payload) if validator else ReviewResultsPayload.parse_obj(normalized_payload)
 
     options = payload.get("options")
     if not isinstance(options, dict):
@@ -1342,7 +1501,6 @@ async def solve_socket(websocket: WebSocket) -> None:
 
             if isinstance(parsed_message, BatchCompletePayload):
                 pipeline.print_final_summary(pipeline.stats.processed_items or parsed_message.total_items)
-                await pipeline.collect_debug_feedback()
                 await send_json(
                     websocket,
                     {
@@ -1350,9 +1508,36 @@ async def solve_socket(websocket: WebSocket) -> None:
                         "session_id": parsed_message.session_id,
                         "total_items": pipeline.stats.processed_items or parsed_message.total_items,
                         "ai_call_count": pipeline.stats.ai_call_count,
+                        "review_mode": runtime_config.is_debug,
                         "status": "pending_manual_confirmation",
                     },
                 )
+                continue
+
+            if isinstance(parsed_message, ReviewResultsPayload):
+                if runtime_config.is_debug:
+                    review_stats = pipeline.ingest_review_results(parsed_message.errors, session_id=parsed_message.session_id)
+                    await send_json(
+                        websocket,
+                        {
+                            "type": "review_results_ack",
+                            "session_id": parsed_message.session_id,
+                            "status": "ok",
+                            "error_count": review_stats["errors"],
+                            "patch_count": review_stats["patches"],
+                        },
+                    )
+                else:
+                    await send_json(
+                        websocket,
+                        {
+                            "type": "review_results_ack",
+                            "session_id": parsed_message.session_id,
+                            "status": "ignored",
+                            "error_count": 0,
+                            "patch_count": 0,
+                        },
+                    )
                 continue
 
             try:
@@ -1360,6 +1545,7 @@ async def solve_socket(websocket: WebSocket) -> None:
                     item_id=parsed_message.item_id,
                     source_text=parsed_message.source_text,
                     options=parsed_message.options,
+                    session_id=parsed_message.session_id,
                 )
                 await send_json(
                     websocket,

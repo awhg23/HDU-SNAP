@@ -7,6 +7,47 @@ let reconnectAttempts = 0;
 const pendingMessages = [];
 const itemRouteMap = new Map();
 const batchRouteMap = new Map();
+const reviewStateByTab = new Map();
+const REVIEW_STATE_TTL_MS = 30 * 60 * 1000;
+
+function reviewStorageKey(tabId) {
+  return `review_state_${tabId}`;
+}
+
+async function saveReviewState(tabId, state) {
+  if (typeof tabId !== "number") {
+    return;
+  }
+  reviewStateByTab.set(tabId, state);
+  await chrome.storage.local.set({ [reviewStorageKey(tabId)]: state });
+}
+
+async function loadReviewState(tabId) {
+  if (typeof tabId !== "number") {
+    return null;
+  }
+  if (reviewStateByTab.has(tabId)) {
+    return reviewStateByTab.get(tabId);
+  }
+  const payload = await chrome.storage.local.get(reviewStorageKey(tabId));
+  const state = payload[reviewStorageKey(tabId)] || null;
+  if (state && state.updatedAt && Date.now() - state.updatedAt > REVIEW_STATE_TTL_MS) {
+    await clearReviewState(tabId);
+    return null;
+  }
+  if (state) {
+    reviewStateByTab.set(tabId, state);
+  }
+  return state;
+}
+
+async function clearReviewState(tabId) {
+  if (typeof tabId !== "number") {
+    return;
+  }
+  reviewStateByTab.delete(tabId);
+  await chrome.storage.local.remove(reviewStorageKey(tabId));
+}
 
 function getBackoffDelay() {
   const delay = Math.min(1000 * (2 ** reconnectAttempts), 10000);
@@ -47,7 +88,7 @@ function scheduleReconnect() {
   }, delay);
 }
 
-function handleSocketMessage(event) {
+async function handleSocketMessage(event) {
   let payload = null;
 
   try {
@@ -69,8 +110,30 @@ function handleSocketMessage(event) {
 
   if (payload.type === "batch_summary") {
     const tabId = batchRouteMap.get(payload.session_id || "default");
+    if (payload.review_mode && typeof tabId === "number") {
+      await saveReviewState(tabId, {
+        enabled: true,
+        phase: "await_history",
+        recordOpened: false,
+        updatedAt: Date.now()
+      });
+    } else if (typeof tabId === "number") {
+      await clearReviewState(tabId);
+    }
     postToTab(tabId, {
       type: "BACKEND_BATCH_SUMMARY",
+      payload
+    });
+    return;
+  }
+
+  if (payload.type === "review_results_ack") {
+    const tabId = batchRouteMap.get(payload.session_id || "default");
+    if (payload.status === "ok" || payload.status === "ignored") {
+      await clearReviewState(tabId);
+    }
+    postToTab(tabId, {
+      type: "BACKEND_REVIEW_ACK",
       payload
     });
   }
@@ -134,11 +197,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "PING_CONNECTION") {
     ensureSocket();
-    sendResponse({
-      ok: true,
-      connected: Boolean(socket && socket.readyState === WebSocket.OPEN)
+    loadReviewState(sender.tab?.id).then((reviewState) => {
+      sendResponse({
+        ok: true,
+        connected: Boolean(socket && socket.readyState === WebSocket.OPEN),
+        reviewState
+      });
     });
-    return false;
+    return true;
   }
 
   if (message.type === "SOLVE_ITEM") {
@@ -159,6 +225,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendOrQueue(message.payload);
     sendResponse({ ok: true, queued: true });
     return false;
+  }
+
+  if (message.type === "REVIEW_RESULTS") {
+    const tabId = sender.tab?.id;
+    const sessionId = message.payload?.session_id || "default";
+    batchRouteMap.set(sessionId, tabId);
+    sendOrQueue(message.payload);
+    sendResponse({ ok: true, queued: true });
+    return false;
+  }
+
+  if (message.type === "UPDATE_REVIEW_STATE") {
+    const tabId = sender.tab?.id;
+    const currentState = reviewStateByTab.get(tabId) || {};
+    const nextState = {
+      ...currentState,
+      ...(message.payload || {}),
+      updatedAt: Date.now()
+    };
+    saveReviewState(tabId, nextState).then(() => {
+      sendResponse({ ok: true });
+    });
+    return true;
   }
 
   sendResponse({ ok: false, error: "unsupported_message_type" });
