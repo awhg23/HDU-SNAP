@@ -2,14 +2,6 @@
 
 HDU-SNAP 是一个自动做英语单词题的小工具。
 
-你手动登录网页后，它会自动：
-
-- 读取题目
-- 把题目发给本地后端
-- 自动选答案
-- 自动点“下一题”
-- 在第 100 题停住，不会自动提交
-
 这份首页教程只写 Windows，而且目标很明确：
 
 **让你用最简单的方法跑通三级级联**
@@ -51,7 +43,7 @@ notepad .env
 9. 点击“加载已解压的扩展程序”。
 10. 选择项目里的 `extension` 文件夹。
 11. 回到 PowerShell。
-12. 输入下面这条命令，一次性装好三级级联需要的依赖和本地向量模型：
+12. 输入下面这条命令，一次性装好三级级联需要的依赖和本地向量模型（500mb-1g左右）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\setup_full_windows.ps1
@@ -66,8 +58,8 @@ powershell -ExecutionPolicy Bypass -File .\setup_full_windows.ps1
 14. 程序启动后，输入 `1`，进入正常模式。
 15. 脚本会自动用 Chrome 打开目标网站。
 16. 你手动登录。
-17. 进入答题页面，手动点一次“开始”。
-18. 后端会自动答题。
+17. 登录后，手动进入题目页面。（地址栏输入 https://skl.hdu.edu.cn/#/english/list）
+18. 进入题目页面后，插件会自动接管答题。
 19. 答完后不会自动提交，你手动提交。
 
 ## 怎样确认三级级联已经开启
@@ -93,15 +85,13 @@ powershell -ExecutionPolicy Bypass -File .\setup_full_windows.ps1
 
 如果你想专门记录错题，启动后输入 `0`。
 
-程序会自动：
-
 - 在你手动提交后进入历史记录页
-- 自动点开刚刚那条记录
-- 自动进入逐题答案页
+- 点开刚刚那条记录
+- 下滑两下
 - 自动从题卡里找到红色错题
 - 自动记录错题、错选和正选
 - 自动写入补丁区 `patch_rules.jsonc`
-
+- 再下滑两下，直到错题记录完毕
 ## 其他文档
 
 - [Mac 教程](./MACOS_GUIDE.md)

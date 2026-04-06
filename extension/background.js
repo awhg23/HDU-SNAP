@@ -8,10 +8,26 @@ const pendingMessages = [];
 const itemRouteMap = new Map();
 const batchRouteMap = new Map();
 const reviewStateByTab = new Map();
+const examStateByTab = new Map();
 const REVIEW_STATE_TTL_MS = 30 * 60 * 1000;
+const EXAM_STATE_TTL_MS = 30 * 60 * 1000;
+const DEBUGGER_PROTOCOL_VERSION = "1.3";
+const MOBILE_EMULATION_PROFILE = {
+  userAgent: "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+  acceptLanguage: "zh-CN,zh;q=0.9,en;q=0.8",
+  platform: "Android",
+  width: 412,
+  height: 915,
+  deviceScaleFactor: 2.625,
+  mobile: true
+};
 
 function reviewStorageKey(tabId) {
   return `review_state_${tabId}`;
+}
+
+function examStorageKey(tabId) {
+  return `exam_state_${tabId}`;
 }
 
 async function saveReviewState(tabId, state) {
@@ -47,6 +63,139 @@ async function clearReviewState(tabId) {
   }
   reviewStateByTab.delete(tabId);
   await chrome.storage.local.remove(reviewStorageKey(tabId));
+}
+
+async function saveExamState(tabId, state) {
+  if (typeof tabId !== "number") {
+    return;
+  }
+  examStateByTab.set(tabId, state);
+  await chrome.storage.local.set({ [examStorageKey(tabId)]: state });
+}
+
+async function loadExamState(tabId) {
+  if (typeof tabId !== "number") {
+    return null;
+  }
+  if (examStateByTab.has(tabId)) {
+    return examStateByTab.get(tabId);
+  }
+  const payload = await chrome.storage.local.get(examStorageKey(tabId));
+  const state = payload[examStorageKey(tabId)] || null;
+  if (state && state.updatedAt && Date.now() - state.updatedAt > EXAM_STATE_TTL_MS) {
+    await clearExamState(tabId);
+    return null;
+  }
+  if (state) {
+    examStateByTab.set(tabId, state);
+  }
+  return state;
+}
+
+async function clearExamState(tabId) {
+  if (typeof tabId !== "number") {
+    return;
+  }
+  examStateByTab.delete(tabId);
+  await chrome.storage.local.remove(examStorageKey(tabId));
+}
+
+function attachDebugger(target) {
+  return new Promise((resolve, reject) => {
+    chrome.debugger.attach(target, DEBUGGER_PROTOCOL_VERSION, () => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        if (/Another debugger is already attached/i.test(error.message || "")) {
+          resolve();
+          return;
+        }
+        reject(new Error(error.message || "debugger attach failed"));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function detachDebugger(target) {
+  return new Promise((resolve) => {
+    chrome.debugger.detach(target, () => {
+      resolve();
+    });
+  });
+}
+
+function sendDebuggerCommand(target, method, params = {}) {
+  return new Promise((resolve, reject) => {
+    chrome.debugger.sendCommand(target, method, params, (result) => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message || `${method} failed`));
+        return;
+      }
+      resolve(result);
+    });
+  });
+}
+
+async function enableExamEmulation(tabId) {
+  if (typeof tabId !== "number") {
+    throw new Error("missing_tab_id");
+  }
+  const target = { tabId };
+  await attachDebugger(target);
+  await sendDebuggerCommand(target, "Network.enable");
+  await sendDebuggerCommand(target, "Network.setUserAgentOverride", {
+    userAgent: MOBILE_EMULATION_PROFILE.userAgent,
+    acceptLanguage: MOBILE_EMULATION_PROFILE.acceptLanguage,
+    platform: MOBILE_EMULATION_PROFILE.platform
+  });
+  await sendDebuggerCommand(target, "Emulation.setDeviceMetricsOverride", {
+    width: MOBILE_EMULATION_PROFILE.width,
+    height: MOBILE_EMULATION_PROFILE.height,
+    deviceScaleFactor: MOBILE_EMULATION_PROFILE.deviceScaleFactor,
+    mobile: MOBILE_EMULATION_PROFILE.mobile
+  });
+  await sendDebuggerCommand(target, "Emulation.setTouchEmulationEnabled", {
+    enabled: true,
+    maxTouchPoints: 1
+  });
+
+  const current = (await loadExamState(tabId)) || {};
+  const nextState = {
+    ...current,
+    emulationEnabled: true,
+    updatedAt: Date.now()
+  };
+  await saveExamState(tabId, nextState);
+  return nextState;
+}
+
+async function disableExamEmulation(tabId) {
+  if (typeof tabId !== "number") {
+    return;
+  }
+
+  const target = { tabId };
+  try {
+    await sendDebuggerCommand(target, "Emulation.setTouchEmulationEnabled", {
+      enabled: false,
+      maxTouchPoints: 1
+    });
+  } catch (error) {
+    console.warn("[HDU-SNAP][background] failed to disable touch emulation:", error);
+  }
+  try {
+    await sendDebuggerCommand(target, "Emulation.clearDeviceMetricsOverride");
+  } catch (error) {
+    console.warn("[HDU-SNAP][background] failed to clear device metrics:", error);
+  }
+  try {
+    await detachDebugger(target);
+  } catch (error) {
+    console.warn("[HDU-SNAP][background] failed to detach debugger:", error);
+  }
+  await clearExamState(tabId);
 }
 
 function getBackoffDelay() {
@@ -197,11 +346,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "PING_CONNECTION") {
     ensureSocket();
-    loadReviewState(sender.tab?.id).then((reviewState) => {
+    Promise.all([
+      loadReviewState(sender.tab?.id),
+      loadExamState(sender.tab?.id)
+    ]).then(([reviewState, examState]) => {
       sendResponse({
         ok: true,
         connected: Boolean(socket && socket.readyState === WebSocket.OPEN),
-        reviewState
+        reviewState,
+        examState
       });
     });
     return true;
@@ -250,8 +403,69 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "ENABLE_EXAM_EMULATION") {
+    const tabId = sender.tab?.id;
+    enableExamEmulation(tabId)
+      .then((examState) => {
+        sendResponse({ ok: true, examState });
+      })
+      .catch((error) => {
+        console.warn("[HDU-SNAP][background] failed to enable exam emulation:", error);
+        sendResponse({ ok: false, error: error.message || "enable_exam_emulation_failed" });
+      });
+    return true;
+  }
+
+  if (message.type === "DISABLE_EXAM_EMULATION") {
+    const tabId = sender.tab?.id;
+    disableExamEmulation(tabId)
+      .then(() => {
+        sendResponse({ ok: true });
+      })
+      .catch((error) => {
+        console.warn("[HDU-SNAP][background] failed to disable exam emulation:", error);
+        sendResponse({ ok: false, error: error.message || "disable_exam_emulation_failed" });
+      });
+    return true;
+  }
+
+  if (message.type === "UPDATE_EXAM_STATE") {
+    const tabId = sender.tab?.id;
+    loadExamState(tabId).then((currentState) => {
+      const nextState = {
+        ...(currentState || {}),
+        ...(message.payload || {}),
+        updatedAt: Date.now()
+      };
+      return saveExamState(tabId, nextState).then(() => {
+        sendResponse({ ok: true, examState: nextState });
+      });
+    });
+    return true;
+  }
+
   sendResponse({ ok: false, error: "unsupported_message_type" });
   return false;
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  disableExamEmulation(tabId).catch((error) => {
+    console.warn("[HDU-SNAP][background] failed to cleanup exam emulation on tab close:", error);
+  });
+  clearReviewState(tabId).catch(() => {});
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  const url = String(changeInfo.url || "");
+  if (!url) {
+    return;
+  }
+  if (/https:\/\/skl\.(hdu\.edu\.cn|hduhelp\.com)\//.test(url)) {
+    return;
+  }
+  disableExamEmulation(tabId).catch((error) => {
+    console.warn("[HDU-SNAP][background] failed to cleanup exam emulation on navigation:", error);
+  });
 });
 
 ensureSocket();

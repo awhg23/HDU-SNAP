@@ -513,7 +513,7 @@ def maybe_open_target_site() -> None:
         logger.info("manual target URLs: %s", " | ".join(FALLBACK_TARGET_URLS))
 
     logger.info("extension will keep listening automatically after login; no terminal confirmation is required")
-    logger.info("correct flow: open in Chrome -> login -> click '开始' once -> backend answers automatically -> submit manually at the end")
+    logger.info("correct flow: open in Chrome -> login -> manually enter the question page -> backend answers automatically -> submit manually at the end")
 
 
 def open_url_in_browser(url: str) -> bool:

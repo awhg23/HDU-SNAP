@@ -5,7 +5,8 @@
   "description": "HDU-SNAP 前端 Web 页面自动化 UI 测试代理",
   "permissions": [
     "tabs",
-    "storage"
+    "storage",
+    "debugger"
   ],
   "host_permissions": [
     "https://skl.hdu.edu.cn/*",

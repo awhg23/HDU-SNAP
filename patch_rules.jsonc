@@ -159,6 +159,18 @@
       "answer_text": "disposition",
       "wrong_answer_text": "temper",
       "note": "结果页自动补丁: 第92题, 错选=C->temper, 正选=A->disposition"
+    },
+    {
+      "source_text": "光泽",
+      "answer_text": "shine",
+      "wrong_answer_text": "light",
+      "note": "结果页自动补丁: 第71题, 错选=A->light, 正选=C->shine"
+    },
+    {
+      "source_text": "genius",
+      "answer_text": "天资",
+      "wrong_answer_text": "耶稣",
+      "note": "结果页自动补丁: 第100题, 错选=C->耶稣, 正选=D->天资"
     }
   ]
 }

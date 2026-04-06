@@ -29,7 +29,9 @@ const state = {
   reviewResultsSent: false,
   answerHistory: {},
   reviewVisited: new Set(),
-  reviewNavigationMode: "card"
+  reviewNavigationMode: "card",
+  mobileEmulationEnabled: false,
+  examEmulationReleaseRequested: false
 };
 
 function persistReviewState(partialState) {
@@ -38,6 +40,15 @@ function persistReviewState(partialState) {
     payload: partialState
   }).catch((error) => {
     console.warn("[HDU-SNAP][content] failed to persist review state:", error);
+  });
+}
+
+function persistExamState(partialState) {
+  return chrome.runtime.sendMessage({
+    type: "UPDATE_EXAM_STATE",
+    payload: partialState
+  }).catch((error) => {
+    console.warn("[HDU-SNAP][content] failed to persist exam state:", error);
   });
 }
 
@@ -87,7 +98,7 @@ function elementTrail(element, depth = 3) {
 }
 
 function textLooksLikeButton(text) {
-  return /^(开始|提交|确认|返回|继续|题卡|自动下一题|下一项|下一题|最终保存)$/.test(text);
+  return /^(开始|开始答题|考试|提交|确认|返回|继续|题卡|自动下一题|下一项|下一题|最终保存)$/.test(text);
 }
 
 function classTrail(element) {
@@ -486,6 +497,11 @@ function looksLikeReviewPage() {
   return isReviewDetailRoute() && Boolean(buildSnapshot()) && /(答题结果|正确\s*\d+|错误\s*\d+)/.test(text);
 }
 
+function pageShowsPhoneOnlyExamWarning() {
+  const text = pageText();
+  return /(请在手机端开考|请在手机端打开|仅支持手机端开考|手机端开考|钉钉客户端打开)/.test(text);
+}
+
 function findLatestHistoryRecord() {
   const candidates = queryVisible("a, button, [role='button'], .van-cell, .van-card, li, div")
     .map((element) => {
@@ -687,6 +703,46 @@ async function sendReviewResults() {
   });
 }
 
+async function ensureExamEmulation() {
+  if (state.mobileEmulationEnabled) {
+    return true;
+  }
+
+  const response = await postMessageToBackground("ENABLE_EXAM_EMULATION", {
+    session_id: state.sessionId
+  });
+  if (!response?.ok) {
+    console.error("[HDU-SNAP][content] failed to enable exam emulation:", response?.error || "unknown_error");
+    return false;
+  }
+
+  state.mobileEmulationEnabled = true;
+  state.examEmulationReleaseRequested = false;
+  debugLog("exam emulation enabled");
+  return true;
+}
+
+async function releaseExamEmulation(reason) {
+  if (!state.mobileEmulationEnabled || state.examEmulationReleaseRequested) {
+    return;
+  }
+
+  state.examEmulationReleaseRequested = true;
+  const response = await postMessageToBackground("DISABLE_EXAM_EMULATION", {
+    reason
+  }).catch((error) => {
+    console.warn("[HDU-SNAP][content] failed to disable exam emulation:", error);
+    return { ok: false };
+  });
+
+  if (response?.ok) {
+    state.mobileEmulationEnabled = false;
+    debugLog("exam emulation released", reason);
+  } else {
+    state.examEmulationReleaseRequested = false;
+  }
+}
+
 function debugLog(...args) {
   console.info("[HDU-SNAP][content]", ...args);
 }
@@ -749,6 +805,22 @@ async function finishBatchIfNeeded() {
     session_id: state.sessionId,
     total_items: AGENT_CONFIG.maxItems
   });
+}
+
+function maybeReleaseExamEmulationAfterFlow() {
+  if (!state.mobileEmulationEnabled || state.examEmulationReleaseRequested) {
+    return;
+  }
+  if (!state.batchCompleteSent) {
+    return;
+  }
+  if (state.reviewEnabled && state.reviewPhase !== "done") {
+    return;
+  }
+  if (!looksLikeHistoryPage()) {
+    return;
+  }
+  void releaseExamEmulation("flow-finished");
 }
 
 async function handleDecision(payload) {
@@ -817,6 +889,9 @@ function scheduleScan() {
 
     const snapshot = buildSnapshot();
     if (!snapshot) {
+      if (pageShowsPhoneOnlyExamWarning() && !state.mobileEmulationEnabled) {
+        await ensureExamEmulation();
+      }
       return;
     }
 
@@ -1025,6 +1100,7 @@ function startObserver() {
   const observer = new MutationObserver(() => {
     scheduleScan();
     scheduleReviewScan();
+    maybeReleaseExamEmulationAfterFlow();
   });
 
   observer.observe(document.documentElement || document.body, {
@@ -1039,12 +1115,15 @@ function startObserver() {
     if (document.visibilityState === "visible") {
       scheduleScan();
       scheduleReviewScan();
+      maybeReleaseExamEmulationAfterFlow();
     }
   });
 
   state.observerStarted = true;
   scheduleScan();
   scheduleReviewScan();
+  maybeReleaseExamEmulationAfterFlow();
+  void ensureExamEmulation();
 }
 
 chrome.runtime.onMessage.addListener((message) => {
@@ -1102,12 +1181,14 @@ chrome.runtime.onMessage.addListener((message) => {
       return;
     }
     debugLog("review results ack", payload);
+    void releaseExamEmulation("review-results-ack");
   }
 });
 
 chrome.runtime.sendMessage({ type: "PING_CONNECTION" })
   .then((response) => {
     const reviewState = response?.reviewState;
+    const examState = response?.examState;
     if (reviewState?.enabled) {
       state.reviewEnabled = true;
       state.reviewPhase = reviewState.phase || "await_history";
@@ -1119,10 +1200,14 @@ chrome.runtime.sendMessage({ type: "PING_CONNECTION" })
       state.reviewVisited = new Set();
       state.reviewNavigationMode = "card";
     }
+    if (examState) {
+      state.mobileEmulationEnabled = Boolean(examState.emulationEnabled);
+    }
   })
   .catch((error) => {
     console.warn("[HDU-SNAP][content] failed to load background state:", error);
   })
   .finally(() => {
+    void ensureExamEmulation();
     startObserver();
   });
