@@ -171,6 +171,24 @@
       "answer_text": "天资",
       "wrong_answer_text": "耶稣",
       "note": "结果页自动补丁: 第100题, 错选=C->耶稣, 正选=D->天资"
+    },
+    {
+      "source_text": "讨论会",
+      "answer_text": "forum",
+      "wrong_answer_text": "conference",
+      "note": "结果页自动补丁: 第11题, 错选=C->conference, 正选=B->forum"
+    },
+    {
+      "source_text": "sore",
+      "answer_text": "愤慨的",
+      "wrong_answer_text": "酸的",
+      "note": "结果页自动补丁: 第44题, 错选=D->酸的, 正选=C->愤慨的"
+    },
+    {
+      "source_text": "设计，策划",
+      "answer_text": "engineer",
+      "wrong_answer_text": "organize",
+      "note": "结果页自动补丁: 第60题, 错选=D->organize, 正选=B->engineer"
     }
   ]
 }

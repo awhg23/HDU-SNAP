@@ -12,6 +12,7 @@ const examStateByTab = new Map();
 const REVIEW_STATE_TTL_MS = 30 * 60 * 1000;
 const EXAM_STATE_TTL_MS = 30 * 60 * 1000;
 const DEBUGGER_PROTOCOL_VERSION = "1.3";
+const DEFAULT_ANSWER_COUNT = 100;
 const MOBILE_EMULATION_PROFILE = {
   userAgent: "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
   acceptLanguage: "zh-CN,zh;q=0.9,en;q=0.8",
@@ -21,6 +22,28 @@ const MOBILE_EMULATION_PROFILE = {
   deviceScaleFactor: 2.625,
   mobile: true
 };
+
+async function fetchAgentConfig() {
+  try {
+    const response = await fetch("http://127.0.0.1:8765/health", {
+      method: "GET",
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      throw new Error(`health_http_${response.status}`);
+    }
+    const payload = await response.json();
+    const answerCount = Number(payload.answer_count || DEFAULT_ANSWER_COUNT);
+    return {
+      answerCount: Number.isFinite(answerCount) && answerCount > 0 ? answerCount : DEFAULT_ANSWER_COUNT
+    };
+  } catch (error) {
+    console.warn("[HDU-SNAP][background] failed to fetch agent config:", error);
+    return {
+      answerCount: DEFAULT_ANSWER_COUNT
+    };
+  }
+}
 
 function reviewStorageKey(tabId) {
   return `review_state_${tabId}`;
@@ -348,13 +371,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     ensureSocket();
     Promise.all([
       loadReviewState(sender.tab?.id),
-      loadExamState(sender.tab?.id)
-    ]).then(([reviewState, examState]) => {
+      loadExamState(sender.tab?.id),
+      fetchAgentConfig()
+    ]).then(([reviewState, examState, agentConfig]) => {
       sendResponse({
         ok: true,
         connected: Boolean(socket && socket.readyState === WebSocket.OPEN),
         reviewState,
-        examState
+        examState,
+        agentConfig
       });
     });
     return true;

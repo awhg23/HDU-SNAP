@@ -1,5 +1,5 @@
 const AGENT_CONFIG = {
-  maxItems: 100,
+  defaultMaxItems: 100,
   scanDebounceMs: 180,
   minActionDelayMs: 100,
   maxActionDelayMs: 300
@@ -17,6 +17,7 @@ const state = {
   lastFingerprint: null,
   sequenceCounter: 0,
   answeredCount: 0,
+  maxItems: AGENT_CONFIG.defaultMaxItems,
   scanTimer: null,
   reviewEnabled: false,
   reviewPhase: "idle",
@@ -222,7 +223,7 @@ function findProgress() {
     if (match) {
       return {
         current: Number(match[1]),
-        total: AGENT_CONFIG.maxItems,
+        total: state.maxItems,
         raw: text
       };
     }
@@ -387,7 +388,7 @@ function buildSnapshot() {
   const progress = findProgress();
   const explicitItemId = progress?.current || null;
   const itemId = explicitItemId || state.sequenceCounter + 1;
-  const isLastItem = itemId >= AGENT_CONFIG.maxItems;
+  const isLastItem = itemId >= state.maxItems;
   const fingerprint = JSON.stringify({
     normalizedQuestion,
     optionTexts,
@@ -628,7 +629,7 @@ function collectWrongQuestionCardItems() {
       continue;
     }
     const itemId = Number(text);
-    if (itemId < 1 || itemId > AGENT_CONFIG.maxItems) {
+    if (itemId < 1 || itemId > state.maxItems) {
       continue;
     }
     if (!elementLooksRed(element)) {
@@ -803,7 +804,7 @@ async function finishBatchIfNeeded() {
   await postMessageToBackground("BATCH_COMPLETE", {
     type: "batch_complete",
     session_id: state.sessionId,
-    total_items: AGENT_CONFIG.maxItems
+    total_items: state.maxItems
   });
 }
 
@@ -1037,7 +1038,7 @@ async function runReviewStep() {
     }
   }
 
-  if ((currentItemId && currentItemId >= AGENT_CONFIG.maxItems) || state.reviewVisited.size >= AGENT_CONFIG.maxItems) {
+  if ((currentItemId && currentItemId >= state.maxItems) || state.reviewVisited.size >= state.maxItems) {
     await sendReviewResults();
     state.reviewPhase = "done";
     void persistReviewState({
@@ -1189,6 +1190,7 @@ chrome.runtime.sendMessage({ type: "PING_CONNECTION" })
   .then((response) => {
     const reviewState = response?.reviewState;
     const examState = response?.examState;
+    const agentConfig = response?.agentConfig;
     if (reviewState?.enabled) {
       state.reviewEnabled = true;
       state.reviewPhase = reviewState.phase || "await_history";
@@ -1202,6 +1204,12 @@ chrome.runtime.sendMessage({ type: "PING_CONNECTION" })
     }
     if (examState) {
       state.mobileEmulationEnabled = Boolean(examState.emulationEnabled);
+    }
+    if (agentConfig?.answerCount) {
+      const answerCount = Number(agentConfig.answerCount);
+      if (Number.isFinite(answerCount) && answerCount > 0) {
+        state.maxItems = answerCount;
+      }
     }
   })
   .catch((error) => {

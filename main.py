@@ -196,6 +196,7 @@ class RunStats:
 @dataclass
 class RuntimeConfig:
     mode: str = "normal"
+    answer_count: int = 100
 
     @property
     def is_debug(self) -> bool:
@@ -618,6 +619,42 @@ def prompt_runtime_mode() -> None:
     if runtime_config.is_debug:
         logger.info("debug mode enabled: recent10000 -> %s", DEBUG_RECENT_10000_PATH)
         logger.info("debug mode enabled: error1000 -> %s", DEBUG_ERROR_1000_PATH)
+
+
+def prompt_answer_count() -> None:
+    configured_answer_count = os.getenv("HDU_SNAP_ANSWER_COUNT", "").strip()
+    if configured_answer_count:
+        try:
+            parsed = int(configured_answer_count)
+            if parsed > 0:
+                runtime_config.answer_count = parsed
+                logger.info("answer count selected from HDU_SNAP_ANSWER_COUNT: %s", runtime_config.answer_count)
+                return
+        except ValueError:
+            logger.warning("invalid HDU_SNAP_ANSWER_COUNT=%s, falling back to interactive input", configured_answer_count)
+
+    if not sys.stdin or not sys.stdin.isatty():
+        runtime_config.answer_count = 100
+        logger.info("stdin is not interactive, defaulting answer count to %s", runtime_config.answer_count)
+        return
+
+    while True:
+        raw = input("请输入答题数量（正整数，默认 100）：").strip()
+        if not raw:
+            runtime_config.answer_count = 100
+            break
+        try:
+            parsed = int(raw)
+        except ValueError:
+            print("输入无效，请输入正整数。")
+            continue
+        if parsed <= 0:
+            print("输入无效，请输入正整数。")
+            continue
+        runtime_config.answer_count = parsed
+        break
+
+    logger.info("answer count selected: %s", runtime_config.answer_count)
 
 
 class DictionaryEngine:
@@ -1372,6 +1409,7 @@ async def healthcheck() -> Dict[str, Any]:
     return {
         "status": "ok",
         "runtime_mode": runtime_config.mode,
+        "answer_count": runtime_config.answer_count,
         "dictionary_source": str(REFERENCE_WORD_CACHE_PATH),
         "patch_rule_file": str(PATCH_RULES_PATH),
         "patch_rule_count": len(services.patch_store.get_rules()),
@@ -1576,5 +1614,6 @@ if __name__ == "__main__":
     import uvicorn
 
     prompt_runtime_mode()
+    prompt_answer_count()
     maybe_open_target_site()
     uvicorn.run(app, host="127.0.0.1", port=8765, reload=False)

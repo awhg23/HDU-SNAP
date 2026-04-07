@@ -11,6 +11,7 @@
   "host_permissions": [
     "https://skl.hdu.edu.cn/*",
     "https://skl.hduhelp.com/*",
+    "http://127.0.0.1:8765/*",
     "ws://127.0.0.1:8765/*"
   ],
   "background": {
