@@ -144,15 +144,9 @@
     },
     {
       "source_text": "大拇指",
-      "answer_text": "nail",
-      "wrong_answer_text": "finger",
-      "note": "结果页自动补丁: 第57题, 错选=B->finger, 正选=A->nail"
-    },
-    {
-      "source_text": "大拇指",
       "answer_text": "thumb",
-      "wrong_answer_text": "finger",
-      "note": "结果页自动补丁: 第57题, 错选=B->finger, 正选=D->thumb"
+      "wrong_answer_text": "nail",
+      "note": "结果页自动补丁: 第33题, 错选=A->nail, 正选=D->thumb"
     },
     {
       "source_text": "性情",
@@ -189,6 +183,120 @@
       "answer_text": "engineer",
       "wrong_answer_text": "organize",
       "note": "结果页自动补丁: 第60题, 错选=D->organize, 正选=B->engineer"
+    },
+    {
+      "source_text": "风景",
+      "answer_text": "landscape",
+      "wrong_answer_text": "scenery",
+      "note": "结果页自动补丁: 第36题, 错选=D->scenery, 正选=A->landscape"
+    },
+    {
+      "source_text": "strap",
+      "answer_text": "条纹",
+      "wrong_answer_text": "皮带",
+      "note": "结果页自动补丁: 第74题, 错选=B->皮带, 正选=A->条纹"
+    },
+    {
+      "source_text": "manipulate",
+      "answer_text": "手持",
+      "wrong_answer_text": "调遣",
+      "note": "结果页自动补丁: 第23题, 错选=A->调遣, 正选=C->手持"
+    },
+    {
+      "source_text": "缩影",
+      "answer_text": "miniature",
+      "wrong_answer_text": "microcosm",
+      "note": "结果页自动补丁: 第86题, 错选=B->microcosm, 正选=A->miniature"
+    },
+    {
+      "source_text": "不利条件，逆境",
+      "answer_text": "odds",
+      "wrong_answer_text": "hardship",
+      "note": "结果页自动补丁: 第40题, 错选=A->hardship, 正选=B->odds"
+    },
+    {
+      "source_text": "地面",
+      "answer_text": "ground",
+      "wrong_answer_text": "floor",
+      "note": "结果页自动补丁: 第69题, 错选=C->floor, 正选=D->ground"
+    },
+    {
+      "source_text": "要求，假定",
+      "answer_text": "postulate",
+      "wrong_answer_text": "suppose",
+      "note": "结果页自动补丁: 第21题, 错选=D->suppose, 正选=A->postulate"
+    },
+    {
+      "source_text": "期刊",
+      "answer_text": "periodical",
+      "wrong_answer_text": "magazine",
+      "note": "结果页自动补丁: 第12题, 错选=A->magazine, 正选=B->periodical"
+    },
+    {
+      "source_text": "storm",
+      "answer_text": "暴雨",
+      "wrong_answer_text": "飓风",
+      "note": "结果页自动补丁: 第18题, 错选=D->飓风, 正选=C->暴雨"
+    },
+    {
+      "source_text": "remnant",
+      "answer_text": "遗迹",
+      "wrong_answer_text": "余数",
+      "note": "结果页自动补丁: 第16题, 错选=A->余数, 正选=B->遗迹"
+    },
+    {
+      "source_text": "行政部门",
+      "answer_text": "sector",
+      "wrong_answer_text": "section",
+      "note": "结果页自动补丁: 第98题, 错选=A->section, 正选=D->sector"
+    },
+    {
+      "source_text": "撤销（意见）",
+      "answer_text": "recede",
+      "wrong_answer_text": "disallow",
+      "note": "结果页自动补丁: 第29题, 错选=A->disallow, 正选=C->recede"
+    },
+    {
+      "source_text": "rig",
+      "answer_text": "塔台",
+      "wrong_answer_text": "波纹",
+      "note": "结果页自动补丁: 第25题, 错选=A->波纹, 正选=B->塔台"
+    },
+    {
+      "source_text": "接受者",
+      "answer_text": "recipient",
+      "wrong_answer_text": "receptionist",
+      "note": "结果页自动补丁: 第55题, 错选=D->receptionist, 正选=B->recipient"
+    },
+    {
+      "source_text": "造反，叛乱",
+      "answer_text": "rebellion",
+      "wrong_answer_text": "coup",
+      "note": "结果页自动补丁: 第14题, 错选=B->coup, 正选=C->rebellion"
+    },
+    {
+      "source_text": "bore",
+      "answer_text": "厌烦",
+      "wrong_answer_text": "钻孔",
+      "note": "结果页自动补丁: 第19题, 错选=A->钻孔, 正选=B->厌烦"
+    },
+    {
+      "source_text": "特征，标记",
+      "answer_text": "trademark",
+      "wrong_answer_text": "tract",
+      "note": "结果页自动补丁: 第55题, 错选=D->tract, 正选=A->trademark"
+    },
+    {
+      "source_text": "装货",
+      "answer_text": "shipment",
+      "wrong_answer_text": "freight",
+      "note": "结果页自动补丁: 第60题, 错选=A->freight, 正选=B->shipment"
+    },
+    {
+      "source_text": "合成物",
+      "answer_text": "synthesis",
+      "wrong_answer_text": "compound",
+      "note": "结果页自动补丁: 第72题, 错选=D->compound, 正选=C->synthesis"
     }
   ]
 }
