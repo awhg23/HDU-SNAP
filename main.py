@@ -53,7 +53,7 @@ REFERENCE_WORD_CACHE_PATH = PROJECT_ROOT / "CET" / "Data.lexicon.cache.json"
 DEFAULT_EMBEDDING_MODEL = "moka-ai/m3e-base"
 DEFAULT_EMBEDDING_MODEL_DIR = PROJECT_ROOT / ".models" / "moka-ai_m3e-base"
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEEPSEEK_MODEL = "deepseek-chat"
+DEEPSEEK_MODEL = "deepseek-v4-flash"
 DEFAULT_TARGET_URL = "https://skl.hduhelp.com/?type=5#/english/list"
 FALLBACK_TARGET_URLS = [
     DEFAULT_TARGET_URL,

@@ -297,6 +297,84 @@
       "answer_text": "synthesis",
       "wrong_answer_text": "compound",
       "note": "结果页自动补丁: 第72题, 错选=D->compound, 正选=C->synthesis"
+    },
+    {
+      "source_text": "symposium",
+      "answer_text": "酒会",
+      "wrong_answer_text": "盗窃",
+      "note": "结果页自动补丁: 第55题, 错选=D->盗窃, 正选=A->酒会"
+    },
+    {
+      "source_text": "异乎寻常的",
+      "answer_text": "terrific",
+      "wrong_answer_text": "abnormal",
+      "note": "结果页自动补丁: 第95题, 错选=A->abnormal, 正选=B->terrific"
+    },
+    {
+      "source_text": "theme",
+      "answer_text": "题目",
+      "wrong_answer_text": "论文",
+      "note": "结果页自动补丁: 第60题, 错选=D->论文, 正选=A->题目"
+    },
+    {
+      "source_text": "whereby",
+      "answer_text": "靠什么",
+      "wrong_answer_text": "哪里",
+      "note": "结果页自动补丁: 第16题, 错选=D->哪里, 正选=A->靠什么"
+    },
+    {
+      "source_text": "一致的",
+      "answer_text": "unanimous",
+      "wrong_answer_text": "universal",
+      "note": "结果页自动补丁: 第80题, 错选=A->universal, 正选=B->unanimous"
+    },
+    {
+      "source_text": "空虚的",
+      "answer_text": "void",
+      "wrong_answer_text": "hollow",
+      "note": "结果页自动补丁: 第77题, 错选=B->hollow, 正选=D->void"
+    },
+    {
+      "source_text": "lumber",
+      "answer_text": "拖累",
+      "wrong_answer_text": "一瘸一拐地走",
+      "note": "结果页自动补丁: 第18题, 错选=B->一瘸一拐地走, 正选=D->拖累"
+    },
+    {
+      "source_text": "边缘",
+      "answer_text": "verge",
+      "wrong_answer_text": "border",
+      "note": "结果页自动补丁: 第13题, 错选=A->border, 正选=B->verge"
+    },
+    {
+      "source_text": "许可证",
+      "answer_text": "warrant",
+      "wrong_answer_text": "merit",
+      "note": "结果页自动补丁: 第94题, 错选=D->merit, 正选=B->warrant"
+    },
+    {
+      "source_text": "rig",
+      "answer_text": "垄断",
+      "wrong_answer_text": "腐坏",
+      "note": "结果页自动补丁: 第4题, 错选=C->腐坏, 正选=A->垄断"
+    },
+    {
+      "source_text": "不考虑的",
+      "answer_text": "irrespective",
+      "wrong_answer_text": "inconsiderate",
+      "note": "结果页自动补丁: 第58题, 错选=B->inconsiderate, 正选=C->irrespective"
+    },
+    {
+      "source_text": "nominal",
+      "answer_text": "名字的",
+      "wrong_answer_text": "极微的",
+      "note": "结果页自动补丁: 第79题, 错选=A->极微的, 正选=D->名字的"
+    },
+    {
+      "source_text": "军士，军阶",
+      "answer_text": "officer",
+      "wrong_answer_text": "stripe",
+      "note": "结果页自动补丁: 第44题, 错选=C->stripe, 正选=A->officer"
     }
   ]
 }
