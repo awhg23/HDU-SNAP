@@ -1,152 +1,86 @@
 # HDU-SNAP 技术文档
 
-## 项目结构
+## 架构
 
 ```text
-HDU-SNAP/
-├── extension/               # Chrome 插件
-├── CET/                     # 内置词库缓存
-├── runtime/                 # 运行时日志、数据库、报表
-├── main.py                  # 后端主程序
-├── patch_rules.jsonc        # 补丁区
-├── generate_debug_report.py # 生成调试报表
-└── README.md
+main.py / hdu-snap CLI
+        │
+        ▼
+src/hdu_snap/
+├── config.py              # Pydantic Settings、路径和客户端安全配置
+├── domain/                # 纯领域类型与文本处理
+├── application/           # Solver Pipeline 与调试反馈
+├── infrastructure/        # SQLite、补丁、日志、向量和 LLM
+├── api/                   # FastAPI、HTTP 与 WebSocket 协议
+└── reporting/             # 调试报表
+
+extension/
+├── src/                   # 后台、内容脚本、设置页与共享源码
+├── dist/                  # ESBuild 生成并提交的 Chrome 可加载产物
+├── manifest.json
+└── options.html
 ```
 
-## 工作流程
+Python 模块导入不会创建文件、加载向量模型或发起网络请求。服务资源由 FastAPI lifespan 显式初始化，并可在测试中注入替代实现。
 
-1. 用户手动登录网页
-2. 插件默认对当前 Chrome 标签页开启手机端兼容
-3. 用户手动进入题目页面
-4. Chrome 插件监听题目 DOM
-5. 插件把题目通过 WebSocket 发给本地后端
-6. 后端按 `补丁规则 -> 字典 -> 向量 -> 大模型` 进行决策
-7. 插件点击答案并翻到下一题
-8. 第 100 题自动挂起，不提交
+## 答题流程
 
-## 后端决策层级
+1. 用户手动登录并进入题目页。
+2. 内容脚本等待后端安全配置，然后监听题目 DOM。
+3. 后台脚本通过 WebSocket 将题目发送到本地后端。
+4. Solver 按 `补丁 -> 字典 -> 向量 -> LLM/兜底` 决策。
+5. 内容脚本点击选项并翻页。
+6. 达到配置数量后挂起，不点击提交。
+7. 调试模式下，结果页错题会回传并写入补丁及调试记录。
 
-### 1. 补丁规则
+## API 协议
 
-- 文件位置：`patch_rules.jsonc`
-- 用于修正常见误判题
-- 调试模式下可以自动写入
+- `GET /health`：兼容健康检查和运行状态。
+- `GET /api/v1/client-config`：插件可见的无敏感配置，当前 `schema_version=1`、`protocol_version=1`。
+- `WS /ws/solve`：答题和复盘协议。
 
-规则模板：
+客户端消息：`solve_item`、`batch_complete`、`review_results`。
 
-```json
-{
-  "source_text": "解决",
-  "answer_text": "resolve",
-  "wrong_answer_text": "dissolve",
-  "note": "避免词库命中到 dissolve"
-}
+服务端消息：`decision`、`error`、`batch_summary`、`review_results_ack`。
+
+协议字段保持与重构前兼容。插件设置页仅保存 loopback 后端地址，不保存 API Key。
+
+## 配置
+
+配置优先级：
+
+```text
+CLI 参数 > 进程环境变量 > 根目录 .env > 默认值/交互输入
 ```
 
-### 2. 字典匹配
+所有环境变量由 `Settings` 加载和校验。完整列表见 `.env.example`，主要分为：
 
-- 词库来源：`CET/Data.lexicon.cache.json`
-- 程序启动时自动导入 SQLite
-- 如果字典只命中唯一候选项，则直接返回
-- 如果同时命中多个候选项，则终止 Tier 1，直接交给 Tier 3
+- 运行模式和答题数量
+- 服务 host、port 与日志级别
+- 数据、词库、补丁和模型路径
+- 向量阈值、LLM 地址与模型
+- 插件延迟、重连、TTL 和移动端模拟配置
 
-### 3. 向量相似度
+默认数据位置保持兼容：
 
-- 本地模型目录：`.models/moka-ai_m3e-base`
-- 当前阈值：
-  - `top score >= 0.78`
-  - `margin >= 0.10`
-
-### 4. 大模型决策
-
-- 使用 DeepSeek 兼容接口
-- 环境变量：`DEEPSEEK_API_KEY`
-- 当本地层级无法稳定决策时触发
-
-## 调试模式
-
-启动 `main.py` 后：
-
-- 输入 `1`：正常模式
-- 输入 `0`：调试模式
-- 然后输入答题数量
-
-调试模式会生成：
-
+- `runtime/hdu_snap.db`
 - `runtime/debug_recent_10000.json`
 - `runtime/debug_error_1000.json`
+- `patch_rules.jsonc`
+- `CET/Data.lexicon.cache.json`
+- `.models/moka-ai_m3e-base`
 
-调试模式下，系统会自动：
+`HDU_SNAP_DATA_DIR` 只改变数据库、调试日志和报表目录，不自动迁移旧数据。
 
-- 在手动提交后进入历史记录页
-- 自动点开最新记录
-- 自动进入逐题答案页
-- 自动从题卡中读取红色错题
-- 自动补全错选和正选文本
-- 自动写入 `patch_rules.jsonc`
+## 开发与验证
 
-## 可视化报表
-
-运行：
-
-```powershell
-.\.venv\Scripts\python.exe generate_debug_report.py
+```bash
+python -m pip install -e ".[dev]"
+python -m pytest
+cd extension
+npm ci
+npm test
+npm run build
 ```
 
-会生成：
-
-- `runtime/debug_report.html`
-- `runtime/debug_report_summary.json`
-
-## 健康检查
-
-启动后访问：
-
-- `http://127.0.0.1:8765/health`
-
-可查看：
-
-- 当前运行模式
-- 当前答题数量
-- 词库路径
-- 补丁区路径
-- 补丁条数
-- 向量模式
-- 模型目录
-
-## Chrome 插件说明
-
-插件文件：
-
-- `extension/manifest.json`
-- `extension/background.js`
-- `extension/content.js`
-
-插件能力：
-
-- 默认开启手机端兼容
-- 自动监听题目变化
-- 自动抓题
-- 自动点击选项
-- 选项点击和翻页之间插入随机延迟
-- 最后一题自动挂起
-
-## 依赖说明
-
-基础依赖：
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-lite.txt
-```
-
-如果你后面要更高准确率，可以再装完整依赖：
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
-
-## 注意
-
-- `runtime/` 下的数据库和日志一般不需要提交到 GitHub
-- `.venv/` 和 `.models/` 也不需要提交
-- 真正需要长期维护的人工修正规则主要在 `patch_rules.jsonc`
+CI 在 Ubuntu Python 3.10/3.12、macOS 3.10 和 Windows 3.10 上运行轻量测试；插件任务验证测试、构建以及 `dist/` 是否与源码同步。CI 不下载向量模型、不请求 DeepSeek、不访问真实题目站点。

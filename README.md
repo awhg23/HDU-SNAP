@@ -1,99 +1,103 @@
 # HDU-SNAP
 
-HDU-SNAP 是一个自动做英语单词题的小工具。
+HDU-SNAP 是一个本地运行的英语单词题自动化工具，由 Python 后端和 Chrome 插件组成。
 
-这份首页教程只写 Windows，而且目标很明确：
+后端按照以下顺序选择答案：
 
-**让你用最简单的方法跑通三级级联**
+1. 补丁规则
+2. 本地词典
+3. 本地向量模型
+4. DeepSeek 或确定性兜底
 
-三级级联指的是：
-
-- Tier 1：字典匹配
-- Tier 2：本地向量模型
-- Tier 3：DeepSeek 大模型
+插件负责识别网页题目、点击答案和翻页。最后一题只会选择答案，**不会自动提交**。
 
 ## Windows 快速开始
 
-先准备好 3 样东西：
+需要 Python 3.10+、Chrome 和可选的 DeepSeek API Key。
 
-- `Python 3.10` 或更高版本
-- `Chrome`
-- 你自己的 `DeepSeek API Key`
-
-然后按下面做。
-
-1. 下载并解压项目。
-2. 打开项目文件夹。
-3. 在空白处按住 `Shift` 再点鼠标右键，点击“在此处打开 PowerShell 窗口”。
-4. 输入下面这条命令，创建 `.env` 文件：
+1. 创建本地配置：
 
 ```powershell
 copy .env.example .env
-```
-
-5. 输入下面这条命令，打开 `.env`：
-
-```powershell
 notepad .env
 ```
 
-6. 把 `DEEPSEEK_API_KEY=` 后面填成你自己的 key，保存并关闭。
-7. 打开 Chrome，在地址栏输入 `chrome://extensions/`。
-8. 打开右上角“开发者模式”。
-9. 点击“加载已解压的扩展程序”。
-10. 选择项目里的 `extension` 文件夹。
-11. 回到 PowerShell。
-12. 输入下面这条命令，一次性装好三级级联需要的依赖和本地向量模型（500mb-1g左右）：
+2. 如需大模型兜底，在 `.env` 填写 `DEEPSEEK_API_KEY`。
+3. 安装完整依赖和本地向量模型：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\setup_full_windows.ps1
 ```
 
-13. 输入下面这条命令启动后端：
+安装脚本会验证 Python 版本。如果已有 `.venv` 低于 Python 3.10，会先将其移动到带时间戳的 `.venv-python*-backup-*` 目录，再用兼容解释器创建新环境，不会直接删除旧环境。
+
+4. 在 `chrome://extensions/` 开启开发者模式，选择“加载已解压的扩展程序”，加载仓库中的 `extension` 文件夹。
+5. 启动后端：
 
 ```powershell
 .\.venv\Scripts\python.exe main.py
 ```
 
-14. 程序启动后，输入 `1`，进入正常模式。
-15. 然后按提示输入答题数量。
-16. 脚本会自动用 Chrome 打开目标网站。
-17. 你手动登录。
-18. 登录后，手动进入题目页面。（地址栏输入 https://skl.hdu.edu.cn/#/english/list）
-19. 进入题目页面后，插件会自动接管答题。
-20. 答完后不会自动提交，你手动提交。
+6. 选择正常或调试模式并输入答题数量。登录站点并手动进入题目页后，插件会开始工作。
 
-## 怎样确认三级级联已经开启
+旧入口继续受支持，也可以使用新的 CLI：
 
-后端启动后，在浏览器打开：
+```powershell
+.\.venv\Scripts\hdu-snap.exe serve
+.\.venv\Scripts\hdu-snap.exe serve --mode normal --answer-count 100
+.\.venv\Scripts\hdu-snap.exe config --check
+```
 
-- [http://127.0.0.1:8765/health](http://127.0.0.1:8765/health)
+## 后端与插件设置
 
-如果你看到：
+默认后端地址是 `http://127.0.0.1:8765`。
 
-- `vector_mode` 是 `embedding`
-- `.env` 里已经填了 `DEEPSEEK_API_KEY`
+- 健康检查：[http://127.0.0.1:8765/health](http://127.0.0.1:8765/health)
+- 插件安全配置：[http://127.0.0.1:8765/api/v1/client-config](http://127.0.0.1:8765/api/v1/client-config)
+- 自定义端口时，同时修改 `.env` 中的 `HDU_SNAP_SERVER_PORT`，并在 Chrome 扩展详情页打开 HDU-SNAP 的“扩展程序选项”保存新地址。
 
-就说明现在已经具备：
+所有配置项及默认值见 [.env.example](./.env.example)。真实 `.env`、模型和运行时数据不会提交到 Git。
 
-- 字典匹配
-- 本地向量模型
-- 大模型兜底
+## 运行模式
 
-也就是三级级联已经跑起来了。
+- 正常模式：自动选择并翻页，在配置的最后一题挂起，等待用户检查和提交。
+- 调试模式：提交后从结果页采集错题，写入 `runtime/` 调试记录，并更新 `patch_rules.jsonc`。
 
-## 调试模式
+生成调试报告：
 
-如果你想专门记录错题，启动后输入 `0`。
+```powershell
+.\.venv\Scripts\python.exe generate_debug_report.py
+```
 
-- 在你手动提交后进入历史记录页
-- 点开刚刚那条记录
-- 下滑两下
-- 自动从题卡里找到红色错题
-- 自动记录错题、错选和正选
-- 自动写入补丁区 `patch_rules.jsonc`
-- 再下滑两下，直到错题记录完毕
-## 其他文档
+或：
+
+```powershell
+.\.venv\Scripts\hdu-snap.exe report
+```
+
+## 开发
+
+Python 轻量开发环境：
+
+```bash
+python3.10 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e ".[dev]"
+python -m pytest
+```
+
+插件源码位于 `extension/src/`，可加载产物提交在 `extension/dist/`：
+
+```bash
+cd extension
+npm ci
+npm test
+npm run build
+```
+
+如果安装时看到 `requires a different Python`，说明旧虚拟环境版本过低。更新代码后重新运行对应的 `setup_full_*` 脚本即可；若系统中没有 Python 3.10+，macOS 可先执行 `brew install python@3.12`。
+
+更多内容：
 
 - [Mac 教程](./MACOS_GUIDE.md)
 - [技术文档](./TECHNICAL.md)

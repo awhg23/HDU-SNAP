@@ -2,7 +2,10 @@
 CET/.DS_Store
 .env
 .venv/
+.venv-python*-backup-*/
 .models/
+*.egg-info/
+extension/node_modules/
 __pycache__/
 *.pyc
 *.pyo

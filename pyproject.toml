@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hdu-snap"
+version = "1.0.0"
+description = "Local vocabulary question solving service and Chrome automation agent"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.110,<1.0",
+  "uvicorn[standard]>=0.29,<1.0",
+  "pydantic>=2.7,<3.0",
+  "pydantic-settings>=2.2,<3.0",
+]
+
+[project.optional-dependencies]
+full = [
+  "openai>=1.30,<2.0",
+  "sentence-transformers>=2.6,<4.0",
+  "torch>=2.2,<3.0",
+]
+dev = [
+  "httpx>=0.27,<1.0",
+  "pytest>=8.2,<9.0",
+  "pytest-asyncio>=0.23,<1.0",
+  "websockets>=12,<16",
+]
+
+[project.scripts]
+hdu-snap = "hdu_snap.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+

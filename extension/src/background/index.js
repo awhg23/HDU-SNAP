@@ -1,127 +1,72 @@
-const DEFAULT_WS_URL = "ws://127.0.0.1:8765/ws/solve";
+import {
+  getBackendBaseUrl,
+  joinBackendUrl,
+  toWebSocketUrl
+} from "../shared/backend-url.js";
+import { createTabStateStore } from "./tab-state-store.js";
+import { computeReconnectDelay, itemRouteKey, sessionRouteKey } from "./transport-policy.js";
 
 let socket = null;
 let reconnectTimer = null;
 let reconnectAttempts = 0;
+let connectPromise = null;
+let agentConfigCache = null;
 
 const pendingMessages = [];
 const itemRouteMap = new Map();
 const batchRouteMap = new Map();
-const reviewStateByTab = new Map();
-const examStateByTab = new Map();
-const REVIEW_STATE_TTL_MS = 30 * 60 * 1000;
-const EXAM_STATE_TTL_MS = 30 * 60 * 1000;
 const DEBUGGER_PROTOCOL_VERSION = "1.3";
-const DEFAULT_ANSWER_COUNT = 100;
-const MOBILE_EMULATION_PROFILE = {
-  userAgent: "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
-  acceptLanguage: "zh-CN,zh;q=0.9,en;q=0.8",
-  platform: "Android",
-  width: 412,
-  height: 915,
-  deviceScaleFactor: 2.625,
-  mobile: true
-};
+
+const reviewStore = createTabStateStore(
+  "review_state",
+  () => agentConfigCache?.automation?.review_state_ttl_ms
+);
+const examStore = createTabStateStore(
+  "exam_state",
+  () => agentConfigCache?.automation?.exam_state_ttl_ms
+);
 
 async function fetchAgentConfig() {
   try {
-    const response = await fetch("http://127.0.0.1:8765/health", {
+    const baseUrl = await getBackendBaseUrl();
+    const response = await fetch(joinBackendUrl(baseUrl, "/api/v1/client-config"), {
       method: "GET",
       cache: "no-store"
     });
     if (!response.ok) {
-      throw new Error(`health_http_${response.status}`);
+      throw new Error(`client_config_http_${response.status}`);
     }
     const payload = await response.json();
-    const answerCount = Number(payload.answer_count || DEFAULT_ANSWER_COUNT);
-    return {
-      answerCount: Number.isFinite(answerCount) && answerCount > 0 ? answerCount : DEFAULT_ANSWER_COUNT
-    };
+    if (payload.schema_version !== 1 || payload.protocol_version !== 1) {
+      throw new Error("unsupported_client_config_version");
+    }
+    agentConfigCache = payload;
+    return payload;
   } catch (error) {
     console.warn("[HDU-SNAP][background] failed to fetch agent config:", error);
-    return {
-      answerCount: DEFAULT_ANSWER_COUNT
-    };
-  }
-}
-
-function reviewStorageKey(tabId) {
-  return `review_state_${tabId}`;
-}
-
-function examStorageKey(tabId) {
-  return `exam_state_${tabId}`;
-}
-
-async function saveReviewState(tabId, state) {
-  if (typeof tabId !== "number") {
-    return;
-  }
-  reviewStateByTab.set(tabId, state);
-  await chrome.storage.local.set({ [reviewStorageKey(tabId)]: state });
-}
-
-async function loadReviewState(tabId) {
-  if (typeof tabId !== "number") {
+    agentConfigCache = null;
     return null;
   }
-  if (reviewStateByTab.has(tabId)) {
-    return reviewStateByTab.get(tabId);
-  }
-  const payload = await chrome.storage.local.get(reviewStorageKey(tabId));
-  const state = payload[reviewStorageKey(tabId)] || null;
-  if (state && state.updatedAt && Date.now() - state.updatedAt > REVIEW_STATE_TTL_MS) {
-    await clearReviewState(tabId);
-    return null;
-  }
-  if (state) {
-    reviewStateByTab.set(tabId, state);
-  }
-  return state;
 }
 
-async function clearReviewState(tabId) {
-  if (typeof tabId !== "number") {
+async function broadcastAgentConfig(config) {
+  if (!config) {
     return;
   }
-  reviewStateByTab.delete(tabId);
-  await chrome.storage.local.remove(reviewStorageKey(tabId));
+  const tabs = await chrome.tabs.query({
+    url: ["https://skl.hdu.edu.cn/*", "https://skl.hduhelp.com/*"]
+  });
+  for (const tab of tabs) {
+    postToTab(tab.id, { type: "CLIENT_CONFIG_UPDATED", payload: config });
+  }
 }
 
-async function saveExamState(tabId, state) {
-  if (typeof tabId !== "number") {
-    return;
-  }
-  examStateByTab.set(tabId, state);
-  await chrome.storage.local.set({ [examStorageKey(tabId)]: state });
-}
-
-async function loadExamState(tabId) {
-  if (typeof tabId !== "number") {
-    return null;
-  }
-  if (examStateByTab.has(tabId)) {
-    return examStateByTab.get(tabId);
-  }
-  const payload = await chrome.storage.local.get(examStorageKey(tabId));
-  const state = payload[examStorageKey(tabId)] || null;
-  if (state && state.updatedAt && Date.now() - state.updatedAt > EXAM_STATE_TTL_MS) {
-    await clearExamState(tabId);
-    return null;
-  }
-  if (state) {
-    examStateByTab.set(tabId, state);
-  }
-  return state;
-}
-
-async function clearExamState(tabId) {
-  if (typeof tabId !== "number") {
-    return;
-  }
-  examStateByTab.delete(tabId);
-  await chrome.storage.local.remove(examStorageKey(tabId));
-}
+const saveReviewState = (tabId, state) => reviewStore.save(tabId, state);
+const loadReviewState = (tabId) => reviewStore.load(tabId);
+const clearReviewState = (tabId) => reviewStore.clear(tabId);
+const saveExamState = (tabId, state) => examStore.save(tabId, state);
+const loadExamState = (tabId) => examStore.load(tabId);
+const clearExamState = (tabId) => examStore.clear(tabId);
 
 function attachDebugger(target) {
   return new Promise((resolve, reject) => {
@@ -168,20 +113,24 @@ async function enableExamEmulation(tabId) {
   const target = { tabId };
   await attachDebugger(target);
   await sendDebuggerCommand(target, "Network.enable");
+  const profile = agentConfigCache?.mobile_emulation;
+  if (!profile) {
+    throw new Error("client_config_unavailable");
+  }
   await sendDebuggerCommand(target, "Network.setUserAgentOverride", {
-    userAgent: MOBILE_EMULATION_PROFILE.userAgent,
-    acceptLanguage: MOBILE_EMULATION_PROFILE.acceptLanguage,
-    platform: MOBILE_EMULATION_PROFILE.platform
+    userAgent: profile.user_agent,
+    acceptLanguage: profile.accept_language,
+    platform: profile.platform
   });
   await sendDebuggerCommand(target, "Emulation.setDeviceMetricsOverride", {
-    width: MOBILE_EMULATION_PROFILE.width,
-    height: MOBILE_EMULATION_PROFILE.height,
-    deviceScaleFactor: MOBILE_EMULATION_PROFILE.deviceScaleFactor,
-    mobile: MOBILE_EMULATION_PROFILE.mobile
+    width: profile.width,
+    height: profile.height,
+    deviceScaleFactor: profile.device_scale_factor,
+    mobile: true
   });
   await sendDebuggerCommand(target, "Emulation.setTouchEmulationEnabled", {
     enabled: true,
-    maxTouchPoints: 1
+    maxTouchPoints: profile.max_touch_points
   });
 
   const current = (await loadExamState(tabId)) || {};
@@ -222,7 +171,8 @@ async function disableExamEmulation(tabId) {
 }
 
 function getBackoffDelay() {
-  const delay = Math.min(1000 * (2 ** reconnectAttempts), 10000);
+  const maxDelay = agentConfigCache?.automation?.reconnect_max_delay_ms || 10000;
+  const delay = computeReconnectDelay(reconnectAttempts, maxDelay);
   reconnectAttempts += 1;
   return delay;
 }
@@ -271,7 +221,7 @@ async function handleSocketMessage(event) {
   }
 
   if (payload.type === "decision" || payload.type === "error") {
-    const routeKey = `${payload.session_id || "default"}:${payload.item_id}`;
+    const routeKey = itemRouteKey(payload.session_id, payload.item_id);
     const tabId = itemRouteMap.get(routeKey);
     postToTab(tabId, {
       type: payload.type === "decision" ? "BACKEND_DECISION" : "BACKEND_ERROR",
@@ -281,7 +231,7 @@ async function handleSocketMessage(event) {
   }
 
   if (payload.type === "batch_summary") {
-    const tabId = batchRouteMap.get(payload.session_id || "default");
+    const tabId = batchRouteMap.get(sessionRouteKey(payload.session_id));
     if (payload.review_mode && typeof tabId === "number") {
       await saveReviewState(tabId, {
         enabled: true,
@@ -300,7 +250,7 @@ async function handleSocketMessage(event) {
   }
 
   if (payload.type === "review_results_ack") {
-    const tabId = batchRouteMap.get(payload.session_id || "default");
+    const tabId = batchRouteMap.get(sessionRouteKey(payload.session_id));
     if (payload.status === "ok" || payload.status === "ignored") {
       await clearReviewState(tabId);
     }
@@ -311,39 +261,51 @@ async function handleSocketMessage(event) {
   }
 }
 
-function ensureSocket() {
+async function ensureSocket() {
   if (socket && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) {
     return socket;
   }
+  if (connectPromise) {
+    return connectPromise;
+  }
+  connectPromise = (async () => {
+    const baseUrl = await getBackendBaseUrl();
+    socket = new WebSocket(toWebSocketUrl(baseUrl, "/ws/solve"));
 
-  socket = new WebSocket(DEFAULT_WS_URL);
-
-  socket.addEventListener("open", () => {
+    socket.addEventListener("open", () => {
     reconnectAttempts = 0;
     flushPendingMessages();
+    void fetchAgentConfig().then(broadcastAgentConfig).catch((error) => {
+      console.warn("[HDU-SNAP][background] failed to broadcast client config:", error);
+    });
     console.info("[HDU-SNAP][background] websocket connected");
-  });
+    });
 
-  socket.addEventListener("message", handleSocketMessage);
+    socket.addEventListener("message", handleSocketMessage);
 
-  socket.addEventListener("close", () => {
+    socket.addEventListener("close", () => {
     console.warn("[HDU-SNAP][background] websocket closed, scheduling reconnect");
     scheduleReconnect();
-  });
+    });
 
-  socket.addEventListener("error", (error) => {
+    socket.addEventListener("error", (error) => {
     console.warn("[HDU-SNAP][background] websocket error:", error);
     if (socket && socket.readyState === WebSocket.OPEN) {
       return;
     }
     scheduleReconnect();
-  });
-
-  return socket;
+    });
+    return socket;
+  })();
+  try {
+    return await connectPromise;
+  } finally {
+    connectPromise = null;
+  }
 }
 
 function sendOrQueue(payload) {
-  ensureSocket();
+  void ensureSocket();
 
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(payload));
@@ -354,11 +316,11 @@ function sendOrQueue(payload) {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  ensureSocket();
+  void ensureSocket();
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  ensureSocket();
+  void ensureSocket();
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -368,12 +330,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "PING_CONNECTION") {
-    ensureSocket();
-    Promise.all([
-      loadReviewState(sender.tab?.id),
-      loadExamState(sender.tab?.id),
-      fetchAgentConfig()
-    ]).then(([reviewState, examState, agentConfig]) => {
+    void ensureSocket();
+    fetchAgentConfig().then(async (agentConfig) => {
+      const [reviewState, examState] = agentConfig
+        ? await Promise.all([loadReviewState(sender.tab?.id), loadExamState(sender.tab?.id)])
+        : [null, null];
       sendResponse({
         ok: true,
         connected: Boolean(socket && socket.readyState === WebSocket.OPEN),
@@ -388,7 +349,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "SOLVE_ITEM") {
     const tabId = sender.tab?.id;
     const payload = message.payload;
-    const routeKey = `${payload.session_id || "default"}:${payload.item_id}`;
+    const routeKey = itemRouteKey(payload.session_id, payload.item_id);
 
     itemRouteMap.set(routeKey, tabId);
     sendOrQueue(payload);
@@ -398,7 +359,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "BATCH_COMPLETE") {
     const tabId = sender.tab?.id;
-    const sessionId = message.payload?.session_id || "default";
+    const sessionId = sessionRouteKey(message.payload?.session_id);
     batchRouteMap.set(sessionId, tabId);
     sendOrQueue(message.payload);
     sendResponse({ ok: true, queued: true });
@@ -407,7 +368,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "REVIEW_RESULTS") {
     const tabId = sender.tab?.id;
-    const sessionId = message.payload?.session_id || "default";
+    const sessionId = sessionRouteKey(message.payload?.session_id);
     batchRouteMap.set(sessionId, tabId);
     sendOrQueue(message.payload);
     sendResponse({ ok: true, queued: true });
@@ -416,14 +377,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "UPDATE_REVIEW_STATE") {
     const tabId = sender.tab?.id;
-    const currentState = reviewStateByTab.get(tabId) || {};
-    const nextState = {
-      ...currentState,
-      ...(message.payload || {}),
-      updatedAt: Date.now()
-    };
-    saveReviewState(tabId, nextState).then(() => {
-      sendResponse({ ok: true });
+    loadReviewState(tabId).then((currentState) => {
+      const nextState = {
+        ...(currentState || {}),
+        ...(message.payload || {}),
+        updatedAt: Date.now()
+      };
+      return saveReviewState(tabId, nextState).then(() => {
+        sendResponse({ ok: true });
+      });
     });
     return true;
   }
@@ -493,4 +455,16 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   });
 });
 
-ensureSocket();
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local" || !changes.backend_base_url) {
+    return;
+  }
+  agentConfigCache = null;
+  if (socket) {
+    socket.close();
+    socket = null;
+  }
+  void ensureSocket();
+});
+
+void ensureSocket();

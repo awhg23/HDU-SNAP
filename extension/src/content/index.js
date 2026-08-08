@@ -1,39 +1,10 @@
-const AGENT_CONFIG = {
-  defaultMaxItems: 100,
-  scanDebounceMs: 180,
-  minActionDelayMs: 100,
-  maxActionDelayMs: 300
-};
+import { nextActionAfterDecision } from "./automation-policy.js";
+import { extractQuestionCore, hasChinese, normalizeText, parseOptionLine } from "./dom.js";
+import { activateReviewMode } from "./review-state.js";
+import { inferTargetsFromText, pageShowsWrongStatus } from "./review.js";
+import { AGENT_CONFIG, LETTERS, applyClientConfig, createAgentState } from "./state.js";
 
-const LETTERS = ["A", "B", "C", "D"];
-
-const state = {
-  sessionId: `tab-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
-  active: true,
-  solving: false,
-  suspended: false,
-  batchCompleteSent: false,
-  observerStarted: false,
-  lastFingerprint: null,
-  sequenceCounter: 0,
-  answeredCount: 0,
-  maxItems: AGENT_CONFIG.defaultMaxItems,
-  scanTimer: null,
-  reviewEnabled: false,
-  reviewPhase: "idle",
-  reviewTimer: null,
-  reviewWorking: false,
-  reviewRecordOpened: false,
-  reviewQueue: [],
-  reviewCollected: new Set(),
-  reviewResults: [],
-  reviewResultsSent: false,
-  answerHistory: {},
-  reviewVisited: new Set(),
-  reviewNavigationMode: "card",
-  mobileEmulationEnabled: false,
-  examEmulationReleaseRequested: false
-};
+const state = createAgentState();
 
 function persistReviewState(partialState) {
   return chrome.runtime.sendMessage({
@@ -60,16 +31,6 @@ function sleep(ms) {
 function randomDelay() {
   const span = AGENT_CONFIG.maxActionDelayMs - AGENT_CONFIG.minActionDelayMs;
   return AGENT_CONFIG.minActionDelayMs + Math.floor(Math.random() * (span + 1));
-}
-
-function normalizeText(text) {
-  return (text || "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function hasChinese(text) {
-  return /[\u4e00-\u9fff]/.test(text || "");
 }
 
 function isVisible(element) {
@@ -151,18 +112,6 @@ function elementLooksGreen(element) {
   });
 }
 
-function parseOptionLine(text) {
-  const normalized = normalizeText(text);
-  const match = normalized.match(/^([ABCD])[\.\s:：、\)]\s*(.+)$/i);
-  if (!match) {
-    return null;
-  }
-  return {
-    letter: match[1].toUpperCase(),
-    text: normalizeText(match[2]).replace(/[ .。?？:：;；]+$/g, "")
-  };
-}
-
 function scoreQuestionText(text) {
   const normalized = normalizeText(text);
   if (!normalized) {
@@ -189,17 +138,6 @@ function scoreQuestionText(text) {
     score += 8;
   }
   return score;
-}
-
-function extractQuestionCore(text) {
-  let normalized = normalizeText(text);
-  normalized = normalized.replace(/^QUESTION\s*\d+\s*/i, "");
-  normalized = normalized.replace(/^第\s*\d+\s*题\s*/i, "");
-  normalized = normalized.replace(/^CET\s*[- ]\s*\d+\s+/i, "");
-  normalized = normalized.replace(/^(?:CET[- ]?[46])\s+/i, "");
-  normalized = normalized.replace(/(自动下一题|题卡|上一题|下一题).*$/i, "");
-  normalized = normalized.split(/\sA[\.\s:：、\)]/)[0];
-  return normalized.replace(/^[：:.。\s]+|[：:.。?？\s]+$/g, "");
 }
 
 function uniqueElements(elements) {
@@ -519,21 +457,6 @@ function findLatestHistoryRecord() {
   return (prioritized[0] || candidates[0] || {}).element || null;
 }
 
-function inferTargetsFromPageText() {
-  const text = pageText();
-  const wrongMatch = text.match(/(?:你的答案|所选答案|错误答案)\s*[:：]?\s*([ABCD])/i);
-  const correctMatch = text.match(/(?:正确答案|参考答案|标准答案)\s*[:：]?\s*([ABCD])/i);
-  return {
-    wrongTarget: wrongMatch ? wrongMatch[1].toUpperCase() : null,
-    correctTarget: correctMatch ? correctMatch[1].toUpperCase() : null
-  };
-}
-
-function reviewPageShowsWrongStatus() {
-  const text = pageText();
-  return /(回答错误|答错|错误答案|回答有误|正确答案是)/.test(text);
-}
-
 function buildReviewResult() {
   const snapshot = buildSnapshot();
   if (!snapshot) {
@@ -543,7 +466,8 @@ function buildReviewResult() {
   const progress = snapshot.progress;
   const itemId = progress?.current || snapshot.itemId;
   const optionEntries = snapshot.options;
-  const inferred = inferTargetsFromPageText();
+  const reviewText = pageText();
+  const inferred = inferTargetsFromText(reviewText);
   let wrongTarget = inferred.wrongTarget;
   let correctTarget = inferred.correctTarget;
 
@@ -560,11 +484,11 @@ function buildReviewResult() {
     }
   }
 
-  if (!wrongTarget && reviewPageShowsWrongStatus() && itemId && state.answerHistory[itemId]) {
+  if (!wrongTarget && pageShowsWrongStatus(reviewText) && itemId && state.answerHistory[itemId]) {
     wrongTarget = state.answerHistory[itemId];
   }
 
-  if (!reviewPageShowsWrongStatus()) {
+  if (!pageShowsWrongStatus(reviewText)) {
     return null;
   }
 
@@ -847,20 +771,21 @@ async function handleDecision(payload) {
 
   state.answeredCount = Math.max(state.answeredCount, snapshot.itemId);
 
-  if (snapshot.isLastItem) {
+  const nextAction = nextActionAfterDecision(snapshot);
+  if (nextAction === "finish") {
     state.suspended = true;
     state.solving = false;
     await finishBatchIfNeeded();
     return;
   }
 
-  if (snapshot.submitButton && !snapshot.nextButton) {
+  if (nextAction === "suspend") {
     state.suspended = true;
     state.solving = false;
     return;
   }
 
-  if (!snapshot.nextButton) {
+  if (nextAction === "wait") {
     state.solving = false;
     debugLog("next button not found, wait for DOM refresh");
     scheduleScan();
@@ -1163,14 +1088,7 @@ chrome.runtime.onMessage.addListener((message) => {
     debugLog("batch summary", payload);
     state.reviewEnabled = Boolean(payload.review_mode);
     if (state.reviewEnabled) {
-      state.reviewPhase = "await_history";
-      state.reviewRecordOpened = false;
-      state.reviewQueue = [];
-      state.reviewCollected = new Set();
-      state.reviewResults = [];
-      state.reviewResultsSent = false;
-      state.reviewVisited = new Set();
-      state.reviewNavigationMode = "card";
+      activateReviewMode(state, { phase: "await_history", recordOpened: false });
       scheduleReviewScan();
     }
     return;
@@ -1183,39 +1101,44 @@ chrome.runtime.onMessage.addListener((message) => {
     }
     debugLog("review results ack", payload);
     void releaseExamEmulation("review-results-ack");
+    return;
+  }
+
+  if (message.type === "CLIENT_CONFIG_UPDATED") {
+    applyClientConfig(state, message.payload);
+    scheduleScan();
   }
 });
 
-chrome.runtime.sendMessage({ type: "PING_CONNECTION" })
-  .then((response) => {
+async function initializeAgent() {
+  while (true) {
+    let response = null;
+    try {
+      response = await chrome.runtime.sendMessage({ type: "PING_CONNECTION" });
+    } catch (error) {
+      console.warn("[HDU-SNAP][content] failed to load background state:", error);
+    }
+    if (!response?.agentConfig) {
+      await sleep(1000);
+      continue;
+    }
     const reviewState = response?.reviewState;
     const examState = response?.examState;
     const agentConfig = response?.agentConfig;
     if (reviewState?.enabled) {
-      state.reviewEnabled = true;
-      state.reviewPhase = reviewState.phase || "await_history";
-      state.reviewRecordOpened = Boolean(reviewState.recordOpened);
-      state.reviewQueue = [];
-      state.reviewCollected = new Set();
-      state.reviewResults = [];
-      state.reviewResultsSent = false;
-      state.reviewVisited = new Set();
-      state.reviewNavigationMode = "card";
+      activateReviewMode(state, {
+        phase: reviewState.phase || "await_history",
+        recordOpened: Boolean(reviewState.recordOpened)
+      });
     }
     if (examState) {
       state.mobileEmulationEnabled = Boolean(examState.emulationEnabled);
     }
-    if (agentConfig?.answerCount) {
-      const answerCount = Number(agentConfig.answerCount);
-      if (Number.isFinite(answerCount) && answerCount > 0) {
-        state.maxItems = answerCount;
-      }
-    }
-  })
-  .catch((error) => {
-    console.warn("[HDU-SNAP][content] failed to load background state:", error);
-  })
-  .finally(() => {
+    applyClientConfig(state, agentConfig);
     void ensureExamEmulation();
     startObserver();
-  });
+    return;
+  }
+}
+
+void initializeAgent();
