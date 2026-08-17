@@ -230,7 +230,7 @@ sidecar 通过 `pyproject.toml` 的 `hdu-snap-sidecar` 命令或 PyInstaller 冻
 | `desktop/package-lock.json` | 锁定 Electron、Forge、ESBuild 和 archiver 依赖。 | 可复现开发/发布必备。 |
 | `desktop/forge.config.cjs` | App Bundle ID、macOS 13 最低版本、未签名 arm64 App/DMG 和额外资源配置。 | 桌面发布必备。 |
 | `desktop/resources/.gitkeep` | 让空的资源工作目录保留在 Git 中。 | 目录占位，可生成资源存在后不影响运行。 |
-| `desktop/scripts/build.mjs` | 打包两个 preload，并复制 renderer HTML/CSS/JS 到 `desktop/dist/`。 | 桌面开发/发布必备。 |
+| `desktop/scripts/build.mjs` | 打包两个 preload，并复制 renderer HTML/CSS/JS 与本地学习插画到 `desktop/dist/`。 | 桌面开发/发布必备。 |
 | `desktop/scripts/prepare-resources.mjs` | 把词典、补丁基线和 M3E 模型复制到待打包资源目录。 | 桌面发布必备。 |
 | `desktop/scripts/verify-packaged-resources.mjs` | Forge 完成后逐字节比较仓库补丁和 `.app` 内补丁；不一致则构建失败。 | 桌面发布安全校验必备。 |
 
@@ -238,8 +238,8 @@ sidecar 通过 `pyproject.toml` 的 `hdu-snap-sidecar` 命令或 PyInstaller 冻
 
 | 文件 | 作用 | 必备性 |
 |---|---|---|
-| `desktop/src/main/index.cjs` | Electron 总入口；窗口生命周期、单实例、IPC 注册、自检、批次编排、提交检测、内存逐题展示、设置、补丁迁移和退出清理。 | 桌面运行必备。 |
-| `desktop/src/main/browser-controller.cjs` | 创建隔离 `WebContentsView`、唯一持久分区、导航安全、证书/权限/下载处理、移动端配置、保持 412px 画布在主内容区居中，并与贴右侧的自适应答题面板保持安全间距及幂等销毁。 | 桌面网页运行必备。 |
+| `desktop/src/main/index.cjs` | Electron 总入口；窗口生命周期、单实例、IPC 注册、自检、批次编排、提交检测、内存逐题展示、结果页当前错题校验与补丁写入、设置、迁移和退出清理。 | 桌面运行必备。 |
+| `desktop/src/main/browser-controller.cjs` | 创建默认隐藏的隔离 `WebContentsView`、唯一持久分区、导航加载等待、安全策略、证书/权限/下载处理、移动端配置、保持 412px 画布居中，并与右侧详情保持安全间距及幂等销毁。 | 桌面网页运行必备。可见性必须由 renderer 页面驱动。 |
 | `desktop/src/main/sidecar-client.cjs` | 启动 Python 子进程，关联 JSON Lines 请求/响应、超时、stderr 日志和退出状态。 | 桌面核心通信必备。 |
 | `desktop/src/main/core-supervisor.cjs` | 串行初始化 sidecar、核心就绪门控，并对可恢复故障只重启重试一次。 | 桌面稳定性必备。 |
 | `desktop/src/main/store.cjs` | 桌面 JSON 数据结构、V1→V2 迁移、备份/恢复、批次上限、筛选和迁移指纹。 | 桌面数据必备。 |
@@ -254,10 +254,12 @@ sidecar 通过 `pyproject.toml` 的 `hdu-snap-sidecar` 命令或 PyInstaller 冻
 
 | 文件 | 作用 | 必备性 |
 |---|---|---|
-| `desktop/src/preload/app.cjs` | 给本地 renderer 暴露白名单 IPC 方法，不暴露 Node/Electron 全量 API。 | 桌面安全与 UI 必备。 |
+| `desktop/src/preload/app.cjs` | 给本地 renderer 暴露白名单 IPC 方法，包括结果页单题补丁请求；不暴露 Node/Electron 全量 API。 | 桌面安全与 UI 必备。 |
 | `desktop/src/renderer/index.html` | 本地应用壳和严格 CSP。 | 桌面 UI 必备。 |
-| `desktop/src/renderer/styles.css` | 首页、学习、记录、设置和诊断界面样式；保证学习页运行栏在最小窗口宽度下不换行遮挡网页。 | 桌面 UI 必备。 |
-| `desktop/src/renderer/app.js` | 本地 UI 渲染与交互；管理页面导航、批次按钮、右侧滚动答题详情、补丁、记录、设置和诊断。 | 桌面 UI 必备。 |
+| `desktop/src/renderer/styles.css` | 全部桌面页面的暖色设计系统实现；保证学习页运行栏和右侧详情在最小窗口宽度下不遮挡网页。 | 桌面 UI 必备。 |
+| `desktop/src/renderer/app.js` | 本地 UI 渲染与交互；包含内嵌 SVG 图标，管理页面导航、任务创建后的状态刷新、原生网页显示/隐藏、批次按钮、结果页“记录错题”、右侧答题详情、补丁草稿与最新优先展示、记录、设置和诊断。 | 桌面 UI 必备。不得缓存网页可见性意图；补丁草稿只保存在当前 renderer 内存，列表倒序不得改写存储。 |
+| `desktop/src/renderer/assets/study-companion.png` | 首页和首次引导共用的透明背景学习插画，由 ImageGen 生成后固化为本地资源。 | 当前桌面视觉必备；替换时必须同步构建和截图验收。 |
+| `design-system/hdu-snap/MASTER.md` | 桌面 UI 的颜色、字体、圆角、阴影、布局不变量和无障碍规则。 | 设计维护必备，不进入 App 运行包。 |
 
 ### 9.4 共享桌面状态与校验
 
@@ -271,8 +273,8 @@ sidecar 通过 `pyproject.toml` 的 `hdu-snap-sidecar` 命令或 PyInstaller 冻
 
 | 文件 | 作用 | 必备性 |
 |---|---|---|
-| `desktop/src/site/dom.cjs` | 可单测的题目/选项文本解析，以及“最终题绝不提交”的纯策略。 | 桌面自动化必备。 |
-| `desktop/src/site/preload.cjs` | 运行在隔离远程网页中的适配器；扫描 DOM、应用答案、等待自动下一题并观察人工提交，不采集调试复盘。 | 桌面自动化必备；不得访问 Key 或 sidecar。 |
+| `desktop/src/site/dom.cjs` | 可单测的题目/选项文本、结果页正确/错选标记解析，以及“最终题绝不提交”的纯策略。 | 桌面自动化必备。 |
+| `desktop/src/site/preload.cjs` | 运行在隔离远程网页中的适配器；扫描 DOM、应用答案、等待自动下一题、观察人工提交，并按用户单次请求扫描当前错题；不自动遍历或采集调试复盘。 | 桌面自动化必备；不得访问 Key、补丁文件或 sidecar。 |
 
 ### 9.6 桌面构建产物
 
@@ -285,6 +287,7 @@ sidecar 通过 `pyproject.toml` 的 `hdu-snap-sidecar` 命令或 PyInstaller 冻
 | `desktop/dist/index.html` | `src/renderer/index.html` 复制。 | 运行时必备、可生成。 |
 | `desktop/dist/styles.css` | `src/renderer/styles.css` 复制。 | 运行时必备、可生成。 |
 | `desktop/dist/app.js` | `src/renderer/app.js` 复制。 | 运行时必备、可生成。 |
+| `desktop/dist/assets/study-companion.png` | `src/renderer/assets/study-companion.png` 复制。 | 运行时必备、可生成。 |
 
 ### 9.7 桌面测试
 
@@ -296,8 +299,8 @@ sidecar 通过 `pyproject.toml` 的 `hdu-snap-sidecar` 命令或 PyInstaller 冻
 | `desktop/test/electron-exit-smoke.cjs` | 启动 Electron 后关闭窗口，验证主进程不会弹 JavaScript 错误。 | macOS 冒烟测试必备，普通 Node CI 不直接运行。 |
 | `desktop/test/local-services.test.cjs` | Key 加密、日志脱敏、诊断清理、版本间隔和无身份导出。 | 桌面开发/CI 必备。 |
 | `desktop/test/migration.test.cjs` | 旧版补丁/Key 迁移以及调试记录忽略策略。 | 桌面开发/CI 必备。 |
-| `desktop/test/security.test.cjs` | sandbox/CSP、禁止自动提交、无身份、补丁入口、核心门控和打包资源。 | 桌面安全回归必备。 |
-| `desktop/test/site-dom.test.cjs` | 题目/选项和无显式下一题页面。 | 站点适配开发/CI 必备。 |
+| `desktop/test/security.test.cjs` | sandbox/CSP、禁止自动提交、无身份、补丁草稿、结果页单题纠错入口、核心门控和打包资源。 | 桌面安全回归必备。 |
+| `desktop/test/site-dom.test.cjs` | 题目/选项、结果页答案标记和无显式下一题页面。 | 站点适配开发/CI 必备。 |
 | `desktop/test/store.test.cjs` | V2 数据迁移、1000 批限制、异常恢复、备份和降级阻断。 | 桌面数据开发/CI 必备。 |
 | `desktop/test/validation.test.cjs` | 导航、HTTP 确认、协议拒绝、题量和选项校验。 | 桌面安全开发/CI 必备。 |
 

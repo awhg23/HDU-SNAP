@@ -45,6 +45,8 @@ let answerHistory = [];
 let pageState = { url: "", supported: false, questionReady: false };
 let pendingPatchImport = null;
 let lastMigrationScan = null;
+let pendingWrongQuestionCapture = null;
+let wrongQuestionCaptureSequence = 0;
 let submissionTimer = null;
 let appQuitting = false;
 let storeBootError = null;
@@ -156,6 +158,20 @@ async function coreRequest(method, params = {}, timeoutMs = 30_000) {
   return ensureCoreSupervisor().request(method, params, timeoutMs);
 }
 
+function requestWrongQuestionCapture() {
+  if (pendingWrongQuestionCapture) throw new Error("正在扫描当前错题，请稍候");
+  const requestId = `wrong-question-${Date.now()}-${++wrongQuestionCaptureSequence}`;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      if (pendingWrongQuestionCapture?.requestId !== requestId) return;
+      pendingWrongQuestionCapture = null;
+      reject(new Error("扫描当前错题超时，请确认结果页已完整显示后重试"));
+    }, 5_000);
+    pendingWrongQuestionCapture = { requestId, resolve, reject, timer };
+    browser.send("capture-wrong-question", { requestId });
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -163,7 +179,7 @@ function createWindow() {
     minWidth: 1100,
     minHeight: 700,
     title: "HDU-SNAP",
-    backgroundColor: "#f4f5f7",
+    backgroundColor: "#f2eadc",
     show: false,
     webPreferences: {
       preload: path.join(desktopRoot, "dist", "app-preload.cjs"),
@@ -285,16 +301,22 @@ function registerIpc() {
 
   register("task:create", async (payload) => {
     requirePlainObject(payload);
-    if (store.state.activeBatch) throw new Error("已有未结束批次");
+    if (machine || store.state.activeBatch) throw new Error("已有未结束批次");
     answerHistory = [];
     machine = new BatchMachine({
       answerCount: positiveInteger(payload.answerCount, "answerCount")
     });
     pageState = { url: "", supported: false, questionReady: false };
-    persistMachine();
-    await browser.open(store.state.settings.learningHome);
-    configureSite();
-    return { ok: true, batch: machine.snapshot() };
+    try {
+      await browser.open(store.state.settings.learningHome);
+      configureSite();
+      persistMachine();
+      return { ok: true, batch: machine.snapshot(), state: publicState() };
+    } catch (error) {
+      machine = null;
+      answerHistory = [];
+      throw error;
+    }
   });
   register("task:discard", () => {
     if (!machine || machine.state.status !== BATCH_STATUS.READY) throw new Error("只能放弃尚未开始的批次");
@@ -315,8 +337,8 @@ function registerIpc() {
   register("browser:forward", () => { browser.forward(); return { ok: true }; });
   register("browser:reload", () => { browser.reload(); return { ok: true }; });
   register("browser:home", async () => {
-    await browser.navigate(store.state.settings.learningHome, false);
-    return { ok: true };
+    const result = await browser.navigate(store.state.settings.learningHome, false);
+    return { ok: true, ...result };
   });
   register("browser:visible", (payload) => {
     if (payload?.visible) browser.show(); else browser.hide();
@@ -428,6 +450,41 @@ function registerIpc() {
 
   register("patch:list", async () => ({ ok: true, ...(await coreRequest("patch_list")) }));
   register("patch:update", async (payload) => ({ ok: true, ...(await coreRequest("patch_update", payload || {})) }));
+  register("patch:capture-current", async () => {
+    if (!pageState.supported || !pageState.resultPage) {
+      throw new Error("请先在支持的学习站点中打开答题结果页");
+    }
+    const scanned = requirePlainObject(await requestWrongQuestionCapture(), "scanned question");
+    if (scanned.ok !== true) throw new Error(String(scanned.error || "当前页面未识别到错题"));
+    const sourceText = String(scanned.sourceText || "").replace(/\s+/g, " ").trim();
+    if (!sourceText || sourceText.length > 500) throw new Error("当前错题的题目文本无效");
+    const options = validateOptions(scanned.options);
+    const correctTarget = String(scanned.correctTarget || "").toUpperCase();
+    if (!/^[A-D]$/.test(correctTarget)) throw new Error("未识别到合法的正确答案");
+    const wrongTargetValue = String(scanned.wrongTarget || "").toUpperCase();
+    const wrongTarget = /^[A-D]$/.test(wrongTargetValue) && wrongTargetValue !== correctTarget
+      ? wrongTargetValue
+      : null;
+    const itemId = positiveInteger(scanned.itemId, "itemId");
+    const answerText = options[correctTarget];
+    const wrongAnswerText = wrongTarget ? options[wrongTarget] : "";
+    const noteParts = [`Mac App 手动记录错题：第 ${itemId} 题`, `正确 ${correctTarget}`];
+    if (wrongTarget) noteParts.push(`错选 ${wrongTarget}`);
+    await coreRequest("patch_update", {
+      source_text: sourceText,
+      answer_text: answerText,
+      wrong_answer_text: wrongAnswerText,
+      note: noteParts.join(" · ")
+    });
+    return {
+      ok: true,
+      itemId,
+      sourceText,
+      answerText,
+      correctTarget,
+      wrongTarget
+    };
+  });
   register("patch:delete", async (payload) => ({ ok: true, ...(await coreRequest("patch_delete", payload || {})) }));
   register("patch:export", async () => {
     const rules = (await coreRequest("patch_list")).rules;
@@ -560,6 +617,14 @@ function registerSiteEvents() {
       };
       delete pageState.identity;
       publish();
+      return;
+    }
+    if (type === "wrong-question-scan-result") {
+      if (!pendingWrongQuestionCapture || payload.requestId !== pendingWrongQuestionCapture.requestId) return;
+      const pending = pendingWrongQuestionCapture;
+      pendingWrongQuestionCapture = null;
+      clearTimeout(pending.timer);
+      pending.resolve(payload);
       return;
     }
     if (!pageState.supported) return;

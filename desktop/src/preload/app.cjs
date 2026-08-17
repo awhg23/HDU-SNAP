@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld("hduSnap", Object.freeze({
   removeKey: () => invoke("key:remove"),
   listPatches: () => invoke("patch:list"),
   updatePatch: (payload) => invoke("patch:update", payload),
+  captureWrongQuestion: () => invoke("patch:capture-current"),
   deletePatch: (payload) => invoke("patch:delete", payload),
   exportPatches: () => invoke("patch:export"),
   importPatches: (payload) => invoke("patch:import", payload),

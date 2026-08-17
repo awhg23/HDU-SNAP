@@ -2,7 +2,10 @@
 
 const { ipcRenderer } = require("electron");
 const {
+  extractCorrectTarget,
   extractQuestionCore,
+  extractWrongTarget,
+  isWrongQuestionResult,
   nextActionAfterDecision,
   normalizeText,
   parseOptionLine
@@ -118,6 +121,56 @@ function snapshot() {
   };
 }
 
+function optionStateTokens(element) {
+  const tokens = [];
+  let current = element;
+  for (let depth = 0; current instanceof HTMLElement && depth < 4; depth += 1) {
+    tokens.push(String(current.className || ""));
+    tokens.push(String(current.getAttribute("data-status") || ""));
+    tokens.push(String(current.getAttribute("aria-label") || ""));
+    if (current.matches("input:checked, [aria-checked='true']")) tokens.push("selected");
+    current = current.parentElement;
+  }
+  return normalizeText(tokens.join(" ")).toLowerCase();
+}
+
+function wrongTargetFromOptions(current, correctTarget) {
+  for (const letter of LETTERS) {
+    if (letter === correctTarget) continue;
+    const tokens = optionStateTokens(current.elements[letter]?.element);
+    if (/(?:^|[\s_-])(wrong|incorrect|error|danger|failed?|selected-wrong)(?:$|[\s_-])/.test(tokens)) {
+      return letter;
+    }
+  }
+  return null;
+}
+
+function captureWrongQuestion(requestId) {
+  const current = snapshot();
+  const bodyText = textOf(document.body);
+  const correctTarget = extractCorrectTarget(bodyText);
+  if (!current || !isWrongQuestionResult(bodyText) || !correctTarget || !current.options[correctTarget]) {
+    send("wrong-question-scan-result", {
+      requestId,
+      ok: false,
+      error: "当前页面未识别到可记录的错题，请先翻到显示正确答案的错题详情。"
+    });
+    return;
+  }
+  const wrongTarget = extractWrongTarget(bodyText) || wrongTargetFromOptions(current, correctTarget);
+  send("wrong-question-scan-result", {
+    requestId,
+    ok: true,
+    itemId: current.itemId,
+    sourceText: current.sourceText,
+    options: current.options,
+    correctTarget,
+    correctOptionText: current.options[correctTarget],
+    wrongTarget,
+    wrongOptionText: wrongTarget ? current.options[wrongTarget] : ""
+  });
+}
+
 function pageState() {
   const current = snapshot();
   const bodyText = textOf(document.body);
@@ -130,7 +183,9 @@ function pageState() {
     title: document.title,
     supported,
     questionReady: supported && Boolean(current),
-    resultPage
+    resultPage,
+    resultItemId: resultPage ? current?.itemId || null : null,
+    wrongQuestionReady: supported && Boolean(current) && isWrongQuestionResult(bodyText)
   };
   const serialized = JSON.stringify(payload);
   if (serialized !== state.lastPageState) {
@@ -237,6 +292,8 @@ ipcRenderer.on("site:command", (_event, command) => {
     pageState();
   } else if (command.type === "inspect") {
     pageState();
+  } else if (command.type === "capture-wrong-question") {
+    captureWrongQuestion(String(payload.requestId || ""));
   } else if (command.type === "set-locked") {
     state.userLocked = Boolean(payload.locked);
   }

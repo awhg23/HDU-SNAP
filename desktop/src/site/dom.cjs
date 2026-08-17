@@ -29,8 +29,31 @@ function nextActionAfterDecision({ isFinal, nextAvailable }) {
   return nextAvailable ? "next" : "wait";
 }
 
+function extractCorrectTarget(text) {
+  const match = normalizeText(text).match(
+    /正确答案(?:是|为)?\s*[:：]?\s*([ABCD])(?=\s|$|[，。,.；;、])/i
+  );
+  return match ? match[1].toUpperCase() : null;
+}
+
+function extractWrongTarget(text) {
+  const match = normalizeText(text).match(
+    /(?:你的答案|您的答案|所选答案|选择答案|作答答案|你的选择|您的选择)(?:是|为)?\s*[:：]?\s*([ABCD])(?=\s|$|[，。,.；;、])/i
+  );
+  return match ? match[1].toUpperCase() : null;
+}
+
+function isWrongQuestionResult(text) {
+  const normalized = normalizeText(text);
+  return /(回答错误|答题错误|答案错误|回答有误|答错)/.test(normalized)
+    && Boolean(extractCorrectTarget(normalized));
+}
+
 module.exports = {
+  extractCorrectTarget,
   extractQuestionCore,
+  extractWrongTarget,
+  isWrongQuestionResult,
   nextActionAfterDecision,
   normalizeText,
   parseOptionLine

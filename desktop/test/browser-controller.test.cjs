@@ -67,3 +67,19 @@ test("browser layout stays centered below the expanded control bar", () => {
   assert.equal(bounds.x, 504);
   assert.equal(bounds.width, 412);
 });
+
+test("navigation resolves only after the requested page load settles", async () => {
+  const controller = Object.create(BrowserController.prototype);
+  const calls = [];
+  controller.view = {
+    webContents: {
+      loadURL: async (url) => { calls.push(url); }
+    }
+  };
+  controller.onHttpBlocked = () => {};
+  controller.onState = () => {};
+  controller.logger = null;
+  const result = await controller.navigate("https://skl.hdu.edu.cn/#/english/list");
+  assert.deepEqual(calls, ["https://skl.hdu.edu.cn/#/english/list"]);
+  assert.equal(result.url, "https://skl.hdu.edu.cn/#/english/list");
+});

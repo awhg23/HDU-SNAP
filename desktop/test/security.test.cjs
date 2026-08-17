@@ -15,6 +15,9 @@ test("remote content is sandboxed and isolated from Node", () => {
   assert.match(source, /webSecurity:\s*true/);
   assert.match(source, /setPermissionRequestHandler\([^\n]+callback\(false\)/);
   assert.doesNotMatch(source, /\.enableDeviceEmulation\(/);
+  assert.match(source, /this\.view\.setVisible\(false\);[\s\S]+addChildView\(this\.view\)/);
+  const openRoutine = source.slice(source.indexOf("async open(url)"), source.indexOf("_secureSession"));
+  assert.doesNotMatch(openRoutine, /this\.show\(\)/);
 });
 
 test("the final-answer routine has no submit lookup or action", () => {
@@ -49,6 +52,40 @@ test("the settings UI supports manual and legacy patch entry", () => {
   assert.match(source, /data-action="add-patch"/);
   assert.match(source, /updatePatch\(\{ source_text, answer_text, wrong_answer_text, note \}\)/);
   assert.match(source, /导入旧版补丁（JSON\/JSONC）/);
+  assert.match(source, /let patchDraft = \{/);
+  assert.match(source, /root\.addEventListener\("input"/);
+  assert.match(source, /value="\$\{esc\(patchDraft\.source_text\)\}"/);
+});
+
+test("result pages support explicit one-question patch capture without restoring debug review", () => {
+  const renderer = fs.readFileSync(path.join(desktopRoot, "src/renderer/app.js"), "utf8");
+  const main = fs.readFileSync(path.join(desktopRoot, "src/main/index.cjs"), "utf8");
+  const bridge = fs.readFileSync(path.join(desktopRoot, "src/preload/app.cjs"), "utf8");
+  const site = fs.readFileSync(path.join(desktopRoot, "src/site/preload.cjs"), "utf8");
+  assert.match(renderer, /data-action="capture-wrong-question"/);
+  assert.match(renderer, /captureWrongQuestion\(\)/);
+  assert.match(bridge, /captureWrongQuestion:\s*\(\)\s*=>\s*invoke\("patch:capture-current"\)/);
+  assert.match(site, /command\.type === "capture-wrong-question"/);
+  assert.match(site, /send\("wrong-question-scan-result"/);
+  assert.match(main, /register\("patch:capture-current"/);
+  assert.match(main, /coreRequest\("patch_update"/);
+  assert.doesNotMatch(renderer, /自动复盘|开始复盘|调试复盘/);
+  assert.doesNotMatch(main, /register\("review:/);
+});
+
+test("records and diagnostics use compact functional toolbars without marketing headers", () => {
+  const renderer = fs.readFileSync(path.join(desktopRoot, "src/renderer/app.js"), "utf8");
+  assert.doesNotMatch(renderer, /练习足迹|每一轮，都算数。|这里只保存批次摘要，不保存账号身份和逐题内容。/);
+  assert.doesNotMatch(renderer, /本机状态|看得见，才放心。|检查核心、日志和版本状态；所有诊断都由你主动导出。/);
+  assert.doesNotMatch(renderer, /偏好与维护|把工具调成顺手的样子。|所有设置都保存在这台 Mac 上。不会同步，也不会上传。/);
+  assert.doesNotMatch(renderer, /设定一个舒服的题量，登录和最终提交仍然由你掌握。/);
+  assert.match(renderer, /table-toolbar-actions/);
+  assert.match(renderer, /data-action="run-self-check"/);
+});
+
+test("the patch library renders the newest stored rule first", () => {
+  const renderer = fs.readFileSync(path.join(desktopRoot, "src/renderer/app.js"), "utf8");
+  assert.match(renderer, /const patchRows = \[\.\.\.\(patches\?\.rules \|\| \[\]\)\]\.reverse\(\)\.map/);
 });
 
 test("the desktop UI exposes only normal answering and keeps the run bar on one line", () => {
@@ -77,6 +114,35 @@ test("the desktop UI exposes only normal answering and keeps the run bar on one 
   assert.match(styles, /\.answer-history-panel[^}]+right:\s*12px[^}]+width:\s*clamp\(214px,/s);
   assert.match(styles, /body[^}]+min-width:\s*1100px/s);
   assert.match(main, /minWidth:\s*1100/);
+});
+
+test("the desktop UI uses the warm local design system and bundled illustration", () => {
+  const renderer = fs.readFileSync(path.join(desktopRoot, "src/renderer/app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(desktopRoot, "src/renderer/styles.css"), "utf8");
+  const build = fs.readFileSync(path.join(desktopRoot, "scripts/build.mjs"), "utf8");
+  const illustration = path.join(desktopRoot, "src/renderer/assets/study-companion.png");
+  assert.match(renderer, /assets\/study-companion\.png/);
+  assert.doesNotMatch(renderer, /🔒/);
+  assert.match(styles, /--terracotta:\s*#c45f3c/i);
+  assert.match(styles, /--olive-deep:\s*#343c2b/i);
+  assert.doesNotMatch(styles, /--blue/i);
+  assert.match(styles, /prefers-reduced-motion:\s*reduce/);
+  assert.match(build, /study-companion\.png/);
+  assert.equal(fs.existsSync(illustration), true);
+});
+
+test("task creation refreshes renderer state and preserves the requested home copy", () => {
+  const renderer = fs.readFileSync(path.join(desktopRoot, "src/renderer/app.js"), "utf8");
+  const main = fs.readFileSync(path.join(desktopRoot, "src/main/index.cjs"), "utf8");
+  assert.doesNotMatch(renderer, /lastBrowserVisible/);
+  assert.match(renderer, /state = result\?\.state \|\| await window\.hduSnap\.getState\(\)/);
+  assert.match(main, /state:\s*publicState\(\)/);
+  assert.match(renderer, /本周练习/);
+  assert.match(renderer, /我爱记单词/);
+  assert.match(renderer, /这次想答多少题？/);
+  assert.match(renderer, /\[90,95,100\]/);
+  assert.doesNotMatch(renderer, /\[50,100,200\]|可以输入任意正整数|准备好，慢慢来。|这一轮想练多少题？/);
+  assert.match(renderer, /<h3>补丁库<\/h3>/);
 });
 
 test("the desktop app uses one instance and gates answering on a ready core", () => {

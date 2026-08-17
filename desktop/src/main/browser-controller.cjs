@@ -39,12 +39,14 @@ class BrowserController {
           backgroundThrottling: false
         }
       });
+      // The local renderer is the sole owner of native-view visibility. Keep a
+      // newly attached view hidden until the learning page explicitly shows it.
+      this.view.setVisible(false);
       this.window.contentView.addChildView(this.view);
       this._wireView();
       this._enableMobileProfile();
       await this._enableMobileNavigator();
     }
-    this.show();
     await this.navigate(url, false);
   }
 
@@ -146,10 +148,20 @@ class BrowserController {
       this.onHttpBlocked(target.url);
       return { blocked: "http_confirmation", ...target };
     }
-    void this.view.webContents.loadURL(target.url).catch((error) => {
-      if (error?.code !== "ERR_ABORTED") this.logger?.warn("page load failed", error.message);
-    });
-    return target;
+    try {
+      await this.view.webContents.loadURL(target.url);
+      return target;
+    } catch (error) {
+      if (error?.code === "ERR_ABORTED") return target;
+      this.logger?.warn("page load failed", error.message);
+      const loadError = {
+        code: error?.code || "ERR_FAILED",
+        description: String(error?.message || "page load failed"),
+        url: target.url
+      };
+      this.onState({ loadError });
+      return { ...target, loadError };
+    }
   }
 
   show() {

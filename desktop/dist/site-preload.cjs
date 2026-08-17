@@ -30,8 +30,27 @@ var require_dom = __commonJS({
       if (isFinal) return "finish";
       return nextAvailable ? "next" : "wait";
     }
+    function extractCorrectTarget2(text) {
+      const match = normalizeText2(text).match(
+        /正确答案(?:是|为)?\s*[:：]?\s*([ABCD])(?=\s|$|[，。,.；;、])/i
+      );
+      return match ? match[1].toUpperCase() : null;
+    }
+    function extractWrongTarget2(text) {
+      const match = normalizeText2(text).match(
+        /(?:你的答案|您的答案|所选答案|选择答案|作答答案|你的选择|您的选择)(?:是|为)?\s*[:：]?\s*([ABCD])(?=\s|$|[，。,.；;、])/i
+      );
+      return match ? match[1].toUpperCase() : null;
+    }
+    function isWrongQuestionResult2(text) {
+      const normalized = normalizeText2(text);
+      return /(回答错误|答题错误|答案错误|回答有误|答错)/.test(normalized) && Boolean(extractCorrectTarget2(normalized));
+    }
     module2.exports = {
+      extractCorrectTarget: extractCorrectTarget2,
       extractQuestionCore: extractQuestionCore2,
+      extractWrongTarget: extractWrongTarget2,
+      isWrongQuestionResult: isWrongQuestionResult2,
       nextActionAfterDecision: nextActionAfterDecision2,
       normalizeText: normalizeText2,
       parseOptionLine: parseOptionLine2
@@ -42,7 +61,10 @@ var require_dom = __commonJS({
 // src/site/preload.cjs
 var { ipcRenderer } = require("electron");
 var {
+  extractCorrectTarget,
   extractQuestionCore,
+  extractWrongTarget,
+  isWrongQuestionResult,
   nextActionAfterDecision,
   normalizeText,
   parseOptionLine
@@ -158,6 +180,53 @@ function snapshot() {
     next: nextButton()
   };
 }
+function optionStateTokens(element) {
+  const tokens = [];
+  let current = element;
+  for (let depth = 0; current instanceof HTMLElement && depth < 4; depth += 1) {
+    tokens.push(String(current.className || ""));
+    tokens.push(String(current.getAttribute("data-status") || ""));
+    tokens.push(String(current.getAttribute("aria-label") || ""));
+    if (current.matches("input:checked, [aria-checked='true']")) tokens.push("selected");
+    current = current.parentElement;
+  }
+  return normalizeText(tokens.join(" ")).toLowerCase();
+}
+function wrongTargetFromOptions(current, correctTarget) {
+  for (const letter of LETTERS) {
+    if (letter === correctTarget) continue;
+    const tokens = optionStateTokens(current.elements[letter]?.element);
+    if (/(?:^|[\s_-])(wrong|incorrect|error|danger|failed?|selected-wrong)(?:$|[\s_-])/.test(tokens)) {
+      return letter;
+    }
+  }
+  return null;
+}
+function captureWrongQuestion(requestId) {
+  const current = snapshot();
+  const bodyText = textOf(document.body);
+  const correctTarget = extractCorrectTarget(bodyText);
+  if (!current || !isWrongQuestionResult(bodyText) || !correctTarget || !current.options[correctTarget]) {
+    send("wrong-question-scan-result", {
+      requestId,
+      ok: false,
+      error: "\u5F53\u524D\u9875\u9762\u672A\u8BC6\u522B\u5230\u53EF\u8BB0\u5F55\u7684\u9519\u9898\uFF0C\u8BF7\u5148\u7FFB\u5230\u663E\u793A\u6B63\u786E\u7B54\u6848\u7684\u9519\u9898\u8BE6\u60C5\u3002"
+    });
+    return;
+  }
+  const wrongTarget = extractWrongTarget(bodyText) || wrongTargetFromOptions(current, correctTarget);
+  send("wrong-question-scan-result", {
+    requestId,
+    ok: true,
+    itemId: current.itemId,
+    sourceText: current.sourceText,
+    options: current.options,
+    correctTarget,
+    correctOptionText: current.options[correctTarget],
+    wrongTarget,
+    wrongOptionText: wrongTarget ? current.options[wrongTarget] : ""
+  });
+}
 function pageState() {
   const current = snapshot();
   const bodyText = textOf(document.body);
@@ -169,7 +238,9 @@ function pageState() {
     title: document.title,
     supported,
     questionReady: supported && Boolean(current),
-    resultPage
+    resultPage,
+    resultItemId: resultPage ? current?.itemId || null : null,
+    wrongQuestionReady: supported && Boolean(current) && isWrongQuestionResult(bodyText)
   };
   const serialized = JSON.stringify(payload);
   if (serialized !== state.lastPageState) {
@@ -267,6 +338,8 @@ ipcRenderer.on("site:command", (_event, command) => {
     pageState();
   } else if (command.type === "inspect") {
     pageState();
+  } else if (command.type === "capture-wrong-question") {
+    captureWrongQuestion(String(payload.requestId || ""));
   } else if (command.type === "set-locked") {
     state.userLocked = Boolean(payload.locked);
   }

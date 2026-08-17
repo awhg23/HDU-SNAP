@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
 await mkdir(dist, { recursive: true });
+await mkdir(path.join(dist, "assets"), { recursive: true });
 
 await Promise.all([
   build({
@@ -28,5 +29,6 @@ await Promise.all([
   }),
   cp(path.join(root, "src/renderer/index.html"), path.join(dist, "index.html")),
   cp(path.join(root, "src/renderer/styles.css"), path.join(dist, "styles.css")),
-  cp(path.join(root, "src/renderer/app.js"), path.join(dist, "app.js"))
+  cp(path.join(root, "src/renderer/app.js"), path.join(dist, "app.js")),
+  cp(path.join(root, "src/renderer/assets/study-companion.png"), path.join(dist, "assets/study-companion.png"))
 ]);
