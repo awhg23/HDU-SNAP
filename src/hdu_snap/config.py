@@ -48,21 +48,6 @@ class Settings(BaseSettings):
     data_dir: Path | None = Field(default=None, validation_alias=_env("HDU_SNAP_DATA_DIR"))
     dictionary_path: Path | None = Field(default=None, validation_alias=_env("HDU_SNAP_DICTIONARY_PATH"))
     patch_rules_path: Path | None = Field(default=None, validation_alias=_env("HDU_SNAP_PATCH_RULES_PATH"))
-    embedding_model_dir: Path | None = Field(default=None, validation_alias=_env("HDU_SNAP_EMBEDDING_MODEL_DIR"))
-
-    embedding_model: str = Field(default="moka-ai/m3e-base", validation_alias=_env("HDU_SNAP_EMBEDDING_MODEL"))
-    vector_top_score_threshold: float = Field(
-        default=0.78,
-        ge=0,
-        le=1,
-        validation_alias=_env("HDU_SNAP_VECTOR_TOP_SCORE_THRESHOLD"),
-    )
-    vector_margin_threshold: float = Field(
-        default=0.10,
-        ge=0,
-        le=1,
-        validation_alias=_env("HDU_SNAP_VECTOR_MARGIN_THRESHOLD"),
-    )
 
     deepseek_api_key: str | None = Field(
         default=None,
@@ -176,10 +161,6 @@ class Settings(BaseSettings):
     @property
     def resolved_patch_rules_path(self) -> Path:
         return self._resolve_path(self.patch_rules_path, PROJECT_ROOT / "patch_rules.jsonc")
-
-    @property
-    def resolved_embedding_model_dir(self) -> Path:
-        return self._resolve_path(self.embedding_model_dir, PROJECT_ROOT / ".models" / "moka-ai_m3e-base")
 
     @property
     def client_config(self) -> dict[str, Any]:

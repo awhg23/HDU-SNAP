@@ -147,20 +147,3 @@ class DictionaryEngine:
                 )
             )
         return DictionaryLookupResult()
-
-    def fetch_translations(self, source_text: str) -> list[str]:
-        normalized_source = normalize_text(source_text)
-        if not normalized_source:
-            return []
-        with self._connect() as connection:
-            if contains_chinese(source_text):
-                rows = connection.execute(
-                    "SELECT DISTINCT word FROM dictionary_aliases WHERE normalized_gloss = ? ORDER BY id ASC",
-                    (normalized_source,),
-                ).fetchall()
-                return [str(row["word"]) for row in rows]
-            rows = connection.execute(
-                "SELECT DISTINCT translation FROM dictionary_entries WHERE normalized_word = ? ORDER BY id ASC",
-                (normalized_source,),
-            ).fetchall()
-            return [str(row["translation"]) for row in rows]

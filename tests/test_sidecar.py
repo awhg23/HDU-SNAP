@@ -84,6 +84,8 @@ async def test_sidecar_solves_without_writing_protocol_noise_to_stdout(tmp_path:
         }
     )
     assert health["checks"]["dictionary"] is True
+    assert "vector_model" not in health["checks"]
+    assert "vector_mode" not in health
     decision = await runtime.solve(
         {
             "session_id": "s1",

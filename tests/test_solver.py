@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from hdu_snap.application.solver import SolverPipeline
-from hdu_snap.domain.models import DictionaryLookupResult, RuntimeOptions, TierDecision, VectorScore
+from hdu_snap.domain.models import DictionaryLookupResult, RuntimeOptions, TierDecision
 
 
 class PatchStore:
@@ -36,20 +36,8 @@ class Dictionary:
     def lookup_exact(self, _source, _options):
         return self.result
 
-    def fetch_translations(self, _source):
-        return []
-
-
-class Vector:
-    def rank(self, _source, options, _hints):
-        return [VectorScore(letter, text, 0.1 - index * 0.01) for index, (letter, text) in enumerate(options.items())]
-
-    def choose(self, source, options, hints):
-        return None, self.rank(source, options, hints)
-
-
 class LLM:
-    async def choose(self, _source, _options, _ranked, stats):
+    async def choose(self, _source, _options, stats):
         stats.record_ai_call()
         return TierDecision("A", "大模型决策")
 
@@ -57,7 +45,6 @@ class LLM:
 def pipeline(dictionary=None, patch_store=None):
     return SolverPipeline(
         dictionary or Dictionary(),
-        Vector(),
         LLM(),
         patch_store or PatchStore(),
         DebugStore(),

@@ -8,8 +8,8 @@ HDU-SNAP 是一个本地运行的英语单词题自动化工具。第二阶段�
 
 1. 补丁规则
 2. 本地词典
-3. 本地向量模型
-4. DeepSeek 或确定性兜底
+3. DeepSeek
+4. 确定性兜底
 
 无论使用 Mac App 还是旧插件，最后一题都只会选择答案，**不会自动提交**。
 
@@ -38,7 +38,6 @@ npm run build
 
 ```bash
 .venv/bin/pip install -e ".[full,dev]"
-bash scripts/build_macos_sidecar.sh
 cd desktop
 npm run make:dmg
 ```
@@ -69,7 +68,7 @@ notepad .env
 ```
 
 2. 如需大模型兜底，在 `.env` 填写 `DEEPSEEK_API_KEY`。
-3. 安装完整依赖和本地向量模型：
+3. 安装完整依赖（包含可选的 DeepSeek 客户端）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\setup_full_windows.ps1
@@ -102,7 +101,7 @@ powershell -ExecutionPolicy Bypass -File .\setup_full_windows.ps1
 - 插件安全配置：[http://127.0.0.1:8765/api/v1/client-config](http://127.0.0.1:8765/api/v1/client-config)
 - 自定义端口时，同时修改 `.env` 中的 `HDU_SNAP_SERVER_PORT`，并在 Chrome 扩展详情页打开 HDU-SNAP 的“扩展程序选项”保存新地址。
 
-所有配置项及默认值见 [.env.example](./.env.example)。真实 `.env`、模型和运行时数据不会提交到 Git。
+所有配置项及默认值见 [.env.example](./.env.example)。真实 `.env` 和运行时数据不会提交到 Git。
 
 ## 运行模式
 

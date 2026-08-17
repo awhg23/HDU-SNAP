@@ -23,14 +23,14 @@ test("batch reaches final pending without any submit action", () => {
     sourceText: "one",
     options: { A: "一", B: "二", C: "三", D: "四" }
   });
-  const state = batch.recordDecision({ target: "C", method: "向量" }, {
+  const state = batch.recordDecision({ target: "C", method: "确定性兜底" }, {
     itemId: 2,
     sourceText: "three",
     options: { A: "一", B: "二", C: "三", D: "四" }
   });
   assert.equal(state.status, BATCH_STATUS.FINAL_PENDING);
   assert.equal(state.answeredCount, 2);
-  assert.deepEqual(state.decisionStats, { 词典: 1, 向量: 1 });
+  assert.deepEqual(state.decisionStats, { 词典: 1, 确定性兜底: 1 });
 });
 
 test("three failures pause and retry resets the counter", () => {

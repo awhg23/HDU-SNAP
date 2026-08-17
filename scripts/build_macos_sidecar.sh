@@ -33,9 +33,6 @@ mkdir -p "${OUTPUT_DIR}" "${BUILD_DIR}"
   --distpath "${OUTPUT_DIR}" \
   --workpath "${BUILD_DIR}/work" \
   --specpath "${BUILD_DIR}" \
-  --collect-all sentence_transformers \
-  --collect-all transformers \
-  --collect-submodules sklearn \
   --hidden-import openai \
   "${PROJECT_DIR}/src/hdu_snap/sidecar.py"
 

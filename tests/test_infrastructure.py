@@ -6,9 +6,9 @@ from types import SimpleNamespace
 import pytest
 
 from hdu_snap.config import PROJECT_ROOT
-from hdu_snap.domain.models import RunStats, VectorScore
+from hdu_snap.domain.models import RunStats
 from hdu_snap.infrastructure.dictionary import DictionaryEngine
-from hdu_snap.infrastructure.models import LLMEngine, VectorEngine
+from hdu_snap.infrastructure.models import LLMEngine
 from hdu_snap.infrastructure.stores import DebugArtifactStore, PatchRuleStore, migrate_legacy_debug_files
 
 
@@ -61,13 +61,6 @@ def test_debug_store_and_legacy_migration(tmp_path) -> None:
     assert len(store.error_questions) == 1
 
 
-def test_vector_threshold_and_llm_fallback(tmp_path) -> None:
-    vector = VectorEngine("unused", tmp_path / "missing", top_score_threshold=0, margin_threshold=0)
-    decision, ranked = vector.choose("news", {"A": "news", "B": "data", "C": "word", "D": "item"}, [])
-    assert decision is not None
-    assert ranked[0].letter == "A"
-
-
 @pytest.mark.asyncio
 async def test_llm_fallback_is_deterministic() -> None:
     llm = LLMEngine(None, "https://api.deepseek.com", "model", 1, 0)
@@ -75,11 +68,10 @@ async def test_llm_fallback_is_deterministic() -> None:
     decision = await llm.choose(
         "news",
         {"A": "新闻", "B": "数据", "C": "项目", "D": "单词"},
-        [VectorScore("A", "新闻", 0.4), VectorScore("B", "数据", 0.2)],
         stats,
     )
     assert decision.target == "A"
-    assert decision.method == "向量兜底"
+    assert decision.method == "确定性兜底"
     assert stats.ai_call_count == 1
 
 
@@ -100,7 +92,6 @@ async def test_llm_disables_thinking_for_single_letter_response() -> None:
     decision = await llm.choose(
         "管理，经营",
         {"A": "stimulus", "B": "accomplish", "C": "manage", "D": "finish"},
-        [VectorScore("D", "finish", 0.7), VectorScore("C", "manage", 0.69)],
         RunStats(),
     )
 

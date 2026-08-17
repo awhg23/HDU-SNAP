@@ -13,7 +13,7 @@ Electron 主进程
 ├── safeStorage / macOS Keychain（仅 DeepSeek Key）
 └── JSON Lines stdio
     └── PyInstaller Python sidecar
-        └── 现有 Solver、词典、向量、DeepSeek 与补丁存储
+        └── 现有 Solver、词典、DeepSeek 与补丁存储
 ```
 
 Mac App 主路径不启动 FastAPI，也不开放本机端口。`src/hdu_snap/sidecar.py` 复用现有应用层和基础设施，通过逐行 JSON 请求响应与 Electron 通信；协议输出固定走 stdout，诊断日志固定走 stderr。网页永远无法访问 Key 或 sidecar。
@@ -40,7 +40,7 @@ src/hdu_snap/
 ├── config.py              # Pydantic Settings、路径和客户端安全配置
 ├── domain/                # 纯领域类型与文本处理
 ├── application/           # Solver Pipeline 与调试反馈
-├── infrastructure/        # SQLite、补丁、日志、向量和 LLM
+├── infrastructure/        # SQLite、补丁、日志和 LLM
 ├── api/                   # FastAPI、HTTP 与 WebSocket 协议
 └── reporting/             # 调试报表
 
@@ -51,7 +51,7 @@ extension/
 └── options.html
 ```
 
-Python 模块导入不会创建文件、加载向量模型或发起网络请求。服务资源由 FastAPI lifespan 显式初始化，并可在测试中注入替代实现。
+Python 模块导入不会创建文件或发起网络请求。服务资源由 FastAPI lifespan 显式初始化，并可在测试中注入替代实现。
 
 ## 答题流程
 
@@ -68,7 +68,7 @@ Mac App 只提供正常答题，不自动遍历结果页、不自动复盘，也
 1. 用户手动登录并进入题目页。
 2. 内容脚本等待后端安全配置，然后监听题目 DOM。
 3. 后台脚本通过 WebSocket 将题目发送到本地后端。
-4. Solver 按 `补丁 -> 字典 -> 向量 -> LLM/兜底` 决策。
+4. Solver 按 `补丁 -> 字典 -> DeepSeek -> 确定性兜底` 决策。
 5. 内容脚本点击选项并翻页。
 6. 达到配置数量后挂起，不点击提交。
 7. 旧版调试模式下，结果页错题会回传并写入补丁及调试记录；此能力不属于 Mac App。
@@ -97,8 +97,8 @@ CLI 参数 > 进程环境变量 > 根目录 .env > 默认值/交互输入
 
 - 运行模式和答题数量
 - 服务 host、port 与日志级别
-- 数据、词库、补丁和模型路径
-- 向量阈值、LLM 地址与模型
+- 数据、词库和补丁路径
+- LLM 地址、模型、超时与重试
 - 插件延迟、重连、TTL 和移动端模拟配置
 
 默认数据位置保持兼容：
@@ -108,7 +108,6 @@ CLI 参数 > 进程环境变量 > 根目录 .env > 默认值/交互输入
 - `runtime/debug_error_1000.json`
 - `patch_rules.jsonc`
 - `CET/Data.lexicon.cache.json`
-- `.models/moka-ai_m3e-base`
 
 `HDU_SNAP_DATA_DIR` 只改变数据库、调试日志和报表目录，不自动迁移旧数据。
 
@@ -136,6 +135,6 @@ bash scripts/run_macos_dev.sh
 
 该模式使用默认应用数据目录，与安装版共享网页登录会话和记录，因此必须先完全退出已安装版。`bash scripts/run_macos_dev.sh --isolated` 改用 `runtime/desktop-dev/`，适合破坏性或首次引导测试。单实例锁按数据目录生效；日常修改不生成 DMG，只有发布和安装验收才执行下面的打包流程。
 
-打包要求 Xcode、Apple Silicon Python 3.10+ 和完整本地模型。`scripts/build_macos_sidecar.sh` 生成冻结核心，`desktop/scripts/prepare-resources.mjs` 准备词典、补丁基线和模型，Electron Forge 生成未签名 App/DMG；构建末尾会校验安装包补丁与仓库基线一致。技术选型记录见 `docs/architecture/ADR-001-macos-app-stack.md`。
+打包要求 Xcode 和 Apple Silicon Python 3.10+。`scripts/build_macos_sidecar.sh` 生成不含 Torch、Sentence Transformers 和本地模型的冻结核心，`desktop/scripts/prepare-resources.mjs` 只准备词典与补丁基线，Electron Forge 生成未签名 App/DMG；构建末尾会校验安装包补丁与仓库基线一致。`prepared` 资源通过 `extraResource` 只复制一次，不再重复进入 `app.asar`。固定 Electron arm64 ZIP 的官方 SHA-256 随 Forge 配置提供，使已有本地缓存可离线校验，不再为校验文件强制联网。技术选型记录见 `docs/architecture/ADR-001-macos-app-stack.md`。
 
-CI 在 Ubuntu Python 3.10/3.12、macOS 3.10 和 Windows 3.10 上运行轻量测试；插件任务验证测试、构建以及 `dist/` 是否与源码同步。CI 不下载向量模型、不请求 DeepSeek、不访问真实题目站点。
+CI 在 Ubuntu Python 3.10/3.12、macOS 3.10 和 Windows 3.10 上运行轻量测试；插件任务验证测试、构建以及 `dist/` 是否与源码同步。CI 不请求 DeepSeek，也不访问真实题目站点。

@@ -12,7 +12,7 @@ from hdu_snap.api.contracts import ReviewResultItemPayload
 from hdu_snap.domain.models import LETTER_ORDER, RunStats, RuntimeOptions, TierDecision
 from hdu_snap.domain.text import clean_option_text, clean_source_text, normalize_text
 from hdu_snap.infrastructure.dictionary import DictionaryEngine
-from hdu_snap.infrastructure.models import LLMEngine, VectorEngine
+from hdu_snap.infrastructure.models import LLMEngine
 from hdu_snap.infrastructure.stores import DebugArtifactStore, PatchRuleStore
 
 logger = logging.getLogger("hdu-snap")
@@ -22,7 +22,6 @@ class SolverPipeline:
     def __init__(
         self,
         dictionary_engine: DictionaryEngine,
-        vector_engine: VectorEngine,
         llm_engine: LLMEngine,
         patch_store: PatchRuleStore,
         debug_store: DebugArtifactStore,
@@ -31,7 +30,6 @@ class SolverPipeline:
         validation_stream: TextIOBase | None = None,
     ) -> None:
         self.dictionary_engine = dictionary_engine
-        self.vector_engine = vector_engine
         self.llm_engine = llm_engine
         self.patch_store = patch_store
         self.debug_store = debug_store
@@ -65,16 +63,10 @@ class SolverPipeline:
         if decision is None:
             dictionary_result = self.dictionary_engine.lookup_exact(source_text, options)
             decision = dictionary_result.decision
-            if decision is None and dictionary_result.force_tier3:
-                ranked = self.vector_engine.rank(source_text, options, [])
-                decision = await self.llm_engine.choose(source_text, options, ranked, self.stats)
+            if decision is None:
+                decision = await self.llm_engine.choose(source_text, options, self.stats)
                 if dictionary_result.force_reason:
                     decision.detail = f"{dictionary_result.force_reason}; {decision.detail or ''}".strip("; ")
-            if decision is None:
-                hints = self.dictionary_engine.fetch_translations(source_text)
-                decision, ranked = self.vector_engine.choose(source_text, options, hints)
-                if decision is None:
-                    decision = await self.llm_engine.choose(source_text, options, ranked, self.stats)
         self._print_validation_log(item_id, source_text, options, decision)
         self._record_debug_log(item_id, source_text, options, decision, session_id)
         self.stats.record_item()

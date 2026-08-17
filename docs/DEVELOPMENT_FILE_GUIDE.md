@@ -2,7 +2,7 @@
 
 本文解释 HDU-SNAP 当前仓库中各文件的职责、所属产品形态和必备性。阅读完本文后，维护者应能判断一个文件属于命令行版、Chrome 插件、桌面版、共享核心，还是仅为本地生成物，并能在删除或重构前知道它是否仍被使用。
 
-本文以 macOS App 2.2.0 和第一阶段兼容版并存的仓库状态为准。新增、移动或删除文件，以及改变入口、打包资源或退场范围时，应同步更新本文和根目录 `AGENTS.md`。
+本文以 macOS App 2.3.0 和第一阶段兼容版并存的仓库状态为准。新增、移动或删除文件，以及改变入口、打包资源或退场范围时，应同步更新本文和根目录 `AGENTS.md`。
 
 ## 1. 阅读口径
 
@@ -36,7 +36,6 @@
 - `.git/`
 - `.venv/`、`.venv-python*-backup-*/`
 - `desktop/node_modules/`、`extension/node_modules/`
-- `.models/moka-ai_m3e-base/`
 - `build/`、`desktop/out/`、`desktop/resources/prepared/`
 - `src/hdu_snap.egg-info/`、`__pycache__/`、`.pytest_cache/`
 
@@ -80,7 +79,7 @@ desktop/src/main/index.cjs（Electron）
 | `.env` | CLI | 当前机器的 CLI 环境变量和 DeepSeek Key。Pydantic Settings 会加载它；桌面安装版不用它。 | CLI 可选、本地私有，禁止提交。 |
 | `.env.example` | CLI / 开发 | 所有 CLI 环境变量的无密钥模板、默认值和范围说明。 | 兼容期开发必备。 |
 | `.gitattributes` | 开发 | 统一文本 LF 行尾，并把数据库、图片、PDF 标记为二进制。 | 仓库维护必备。 |
-| `.gitignore` | 开发 | 排除密钥、模型、虚拟环境、依赖、运行数据和构建产物。 | 安全与仓库维护必备。 |
+| `.gitignore` | 开发 | 排除密钥、遗留模型目录、虚拟环境、依赖、运行数据和构建产物。 | 安全与仓库维护必备。 |
 | `AGENTS.md` | 开发 | 中文项目记忆、架构边界、安全约束和当前验收状态；编码代理的规范来源。 | 维护必备，不进入运行时。 |
 | `README.md` | 开发 | 项目总入口、快速开始和两种产品形态的常用命令。 | 维护必备。 |
 | `TECHNICAL.md` | 开发 | 架构、协议、配置和开发验证的技术说明。 | 维护必备。 |
@@ -88,13 +87,12 @@ desktop/src/main/index.cjs（Electron）
 | `VERSION` | 开发 | 只包含 `1.0.0`，当前没有代码或构建脚本读取。 | 非必备；不能作为版本真源。清理前应先统一三处实际版本源。 |
 | `pyproject.toml` | 共享 / CLI / 桌面 | Python 3.10+ 元数据、基础/full/dev 依赖、pytest 配置，以及 `hdu-snap`、`hdu-snap-sidecar` 命令入口。 | Python 开发、CLI 安装和 sidecar 构建必备。 |
 | `requirements-lite.txt` | CLI | 兼容旧安装方式，等价于可编辑安装基础包 `-e .`。 | 兼容期必备。 |
-| `requirements.txt` | CLI / 桌面发布 | 兼容完整安装，等价于 `-e .[full]`；准备本地模型和 sidecar 构建环境时使用。 | 兼容期与桌面发布必备。 |
+| `requirements.txt` | CLI / 桌面发布 | 兼容完整安装，等价于 `-e .[full]`；包含 DeepSeek 客户端并用于准备 sidecar 构建环境。 | 兼容期与桌面发布必备。 |
 | `main.py` | CLI | `python main.py` 的薄兼容入口，转发到 `hdu_snap.cli:main`。 | 兼容期必备。 |
 | `generate_debug_report.py` | CLI | 旧的调试报告命令入口，转发到 `hdu_snap.reporting.report:main`。 | 兼容期必备。 |
 | `start_backend.sh` | CLI | 根目录兼容包装器，转发到 `scripts/start_backend.sh`。 | 兼容期必备。 |
 | `setup_full_macos.sh` | CLI | 根目录 macOS 完整环境安装兼容包装器。 | 兼容期必备；桌面开发也可借它准备完整 Python 环境。 |
 | `setup_full_windows.ps1` | CLI | 根目录 Windows 完整环境安装兼容包装器。 | Windows CLI 兼容期必备。 |
-| `install_vector_tier.sh` | CLI / 共享 | 根目录向量模型安装兼容包装器。 | 完整向量模式可选；兼容期保留。 |
 | `patch_rules.jsonc` | 共享 | 经过确认的纠错规则；CLI 直接使用，也是桌面安装包的内置补丁基线。 | 共享运行和桌面发布必备，不能随意删除或有损改写。 |
 | `CET/Data.lexicon.cache.json` | 共享 | 内置词典种子，初始化 SQLite 词典缓存和答题匹配。 | 共享运行和桌面发布必备。 |
 | `.DS_Store`、`CET/.DS_Store` | 非项目 | Finder 自动生成的目录元数据。 | 不需要，可删除且不得提交。 |
@@ -113,19 +111,19 @@ desktop/src/main/index.cjs（Electron）
 |---|---|---|
 | `src/hdu_snap/__init__.py` | Python 包标记和 CLI 包版本 `__version__`。 | 共享必备；版本需与 `pyproject.toml` 同步。 |
 | `src/hdu_snap/config.py` | Pydantic Settings v2、路径解析、环境变量别名、数值/安全校验和客户端安全配置。 | 共享必备。桌面 sidecar 注入路径和 Key，CLI 额外加载 `.env`。 |
-| `src/hdu_snap/bootstrap.py` | 创建 `ServiceContainer`，在显式启动阶段组装词典、向量、LLM、补丁和调试存储。 | 共享必备。 |
+| `src/hdu_snap/bootstrap.py` | 创建 `ServiceContainer`，在显式启动阶段组装词典、LLM、补丁和调试存储。 | 共享必备。 |
 | `src/hdu_snap/api/__init__.py` | 当前协议模型所在包的标记；虽然包名是 `api`，桌面 sidecar 也会导入其中的协议模型。 | 当前共享包结构必备。 |
 | `src/hdu_snap/api/contracts.py` | `solve_item`、`batch_complete`、`review_results` 及响应的 Pydantic 协议模型和输入规范化；CLI WebSocket 与桌面 sidecar 共用。 | 共享协议必备，未来移动时必须保持语义兼容。 |
 | `src/hdu_snap/application/__init__.py` | application 子包标记和职责说明。 | 共享包结构必备。 |
-| `src/hdu_snap/application/solver.py` | 核心答题流水线；保持“补丁 → 词典 → 向量 → LLM/确定性兜底”，记录调试数据并处理复盘结果。 | 共享业务必备。 |
+| `src/hdu_snap/application/solver.py` | 核心答题流水线；保持“补丁 → 词典 → DeepSeek → 确定性兜底”，记录 CLI 调试数据并处理兼容复盘结果。 | 共享业务必备。 |
 
 ### 4.2 领域层
 
 | 文件 | 作用 | 必备性 |
 |---|---|---|
 | `src/hdu_snap/domain/__init__.py` | domain 子包标记。 | 共享包结构必备。 |
-| `src/hdu_snap/domain/models.py` | `TierDecision`、`RuntimeOptions`、`RunStats`、向量分数和字典结果等纯领域类型。 | 共享业务必备。 |
-| `src/hdu_snap/domain/text.py` | 题目/选项清洗、中文释义切分、规范化和轻量相似度函数。 | 共享业务必备。 |
+| `src/hdu_snap/domain/models.py` | `TierDecision`、`RuntimeOptions`、`RunStats` 和字典结果等纯领域类型。 | 共享业务必备。 |
+| `src/hdu_snap/domain/text.py` | 题目/选项清洗、中文释义切分和文本规范化函数。 | 共享业务必备。 |
 
 ### 4.3 基础设施层
 
@@ -133,7 +131,7 @@ desktop/src/main/index.cjs（Electron）
 |---|---|---|
 | `src/hdu_snap/infrastructure/__init__.py` | infrastructure 子包标记。 | 共享包结构必备。 |
 | `src/hdu_snap/infrastructure/dictionary.py` | 从词典 JSON 初始化/读取 SQLite，执行精确匹配、翻译提示和冲突判断。 | 共享业务必备。 |
-| `src/hdu_snap/infrastructure/models.py` | 本地 Sentence Transformers 向量决策与 DeepSeek LLM 适配；负责阈值、重试、V4 禁用思考和确定性兜底。 | 共享必备；无模型/Key 时部分能力降级。 |
+| `src/hdu_snap/infrastructure/models.py` | DeepSeek LLM 适配；负责重试、V4 禁用思考和无 Key/失败时的确定性兜底。 | 共享必备；无 Key 时自动降级。 |
 | `src/hdu_snap/infrastructure/stores.py` | 调试 JSON 存储、旧文件迁移和 JSONC 补丁增删改查；负责内置补丁按题目补缺且不覆盖用户规则。 | 共享数据必备。 |
 
 ## 5. 第一阶段命令行后端
@@ -162,9 +160,8 @@ sidecar 通过 `pyproject.toml` 的 `hdu-snap-sidecar` 命令或 PyInstaller 冻
 |---|---|---|---|
 | `scripts/lib/python_env.sh` | CLI / 开发 | macOS/Linux 共用的 Python 3.10+ 探测、旧 `.venv` 安全备份和新环境创建函数。 | CLI 安装脚本必备。 |
 | `scripts/start_backend.sh` | CLI | 安装 lite/full 依赖并执行 `main.py`；使用标记文件避免每次重复安装。 | CLI 兼容期必备。 |
-| `scripts/setup_full_macos.sh` | CLI / 桌面开发 | 准备完整 Python 依赖和本地向量模型。 | CLI 完整模式必备；桌面发布环境准备需要。 |
-| `scripts/setup_full_windows.ps1` | CLI | Windows Python 版本检查、旧虚拟环境备份、依赖和模型安装。 | Windows CLI 兼容期必备。 |
-| `scripts/install_vector_tier.sh` | CLI / 共享 | 安装 Torch/Sentence Transformers 并下载 `moka-ai/m3e-base` 到 `.models/`。 | 向量完整模式和桌面发布资源准备需要；lite 模式可选。 |
+| `scripts/setup_full_macos.sh` | CLI / 桌面开发 | 清理遗留向量运行时，并准备包含 DeepSeek 客户端的完整 Python 依赖。 | CLI 完整模式必备；桌面发布环境准备需要。 |
+| `scripts/setup_full_windows.ps1` | CLI | Windows Python 版本检查、旧虚拟环境备份、遗留向量依赖清理和完整依赖安装。 | Windows CLI 兼容期必备。 |
 | `scripts/run_macos_dev.sh` | 桌面 | 启动桌面源码版；默认复用正式 App 数据，`--isolated` 使用 `runtime/desktop-dev/`。 | 桌面日常开发必备。 |
 | `scripts/build_macos_sidecar.sh` | 桌面发布 | 用 Apple Silicon Python 和 PyInstaller 生成 onedir sidecar 到桌面准备资源目录。 | DMG 发布必备，日常源码运行可不执行。 |
 
@@ -231,7 +228,7 @@ sidecar 通过 `pyproject.toml` 的 `hdu-snap-sidecar` 命令或 PyInstaller 冻
 | `desktop/forge.config.cjs` | App Bundle ID、macOS 13 最低版本、未签名 arm64 App/DMG 和额外资源配置。 | 桌面发布必备。 |
 | `desktop/resources/.gitkeep` | 让空的资源工作目录保留在 Git 中。 | 目录占位，可生成资源存在后不影响运行。 |
 | `desktop/scripts/build.mjs` | 打包两个 preload，并复制 renderer HTML/CSS/JS 与本地学习插画到 `desktop/dist/`。 | 桌面开发/发布必备。 |
-| `desktop/scripts/prepare-resources.mjs` | 把词典、补丁基线和 M3E 模型复制到待打包资源目录。 | 桌面发布必备。 |
+| `desktop/scripts/prepare-resources.mjs` | 清理旧核心资源，并把词典与补丁基线复制到待打包资源目录；保留已经重建的 sidecar。 | 桌面发布必备。 |
 | `desktop/scripts/verify-packaged-resources.mjs` | Forge 完成后逐字节比较仓库补丁和 `.app` 内补丁；不一致则构建失败。 | 桌面发布安全校验必备。 |
 
 ### 9.2 Electron 主进程
@@ -312,10 +309,10 @@ sidecar 通过 `pyproject.toml` 的 `hdu-snap-sidecar` 命令或 PyInstaller 冻
 | `tests/test_config.py` | 配置优先级、交互回退、非法 host/延迟、脱敏和客户端配置。 | CLI / 共享 | 开发/CI 必备。 |
 | `tests/test_domain_and_protocol.py` | 文本清洗和 WebSocket 协议模型。 | 共享 / CLI | 开发/CI 必备。 |
 | `tests/test_solver.py` | 补丁最高优先级、字典冲突和决策链。 | 共享 | 开发/CI 必备。 |
-| `tests/test_infrastructure.py` | 词典、补丁、调试存储、向量/LLM 和发布补丁无冲突。 | 共享 | 开发/CI 必备。 |
+| `tests/test_infrastructure.py` | 词典、补丁、调试存储、LLM/确定性兜底和发布补丁无冲突。 | 共享 | 开发/CI 必备。 |
 | `tests/test_api.py` | `/health`、客户端配置、WebSocket 批次和复盘模式。 | CLI | 兼容期开发/CI 必备。 |
 | `tests/test_reporting.py` | 报表使用注入的数据目录。 | CLI | 兼容期开发/CI 必备。 |
-| `tests/test_imports.py` | 导入 Python 包不会创建文件、加载模型或访问网络。 | 共享 | 架构回归必备。 |
+| `tests/test_imports.py` | 导入 Python 包不会创建文件或访问网络，并验证 Solver 模型适配模块可在无机器学习运行时的环境导入。 | 共享 | 架构回归必备。 |
 | `tests/test_sidecar.py` | sidecar 初始化、答题、补丁播种/升级、复盘确认、手动补丁和错误脱敏。 | 桌面 / 共享 | 桌面开发/CI 必备。 |
 
 ## 11. 文档和自动化
@@ -338,18 +335,18 @@ sidecar 通过 `pyproject.toml` 的 `hdu-snap-sidecar` 命令或 PyInstaller 冻
 | 路径 | 内容 | 是否必备/能否删除 |
 |---|---|---|
 | `.venv/` | 当前 Python 3.10+ 依赖环境。 | 本地私有、可重建；运行 CLI 或源码 sidecar 前需要。 |
-| `.venv-python3.9.6-backup-20260808-223152/` | 安装脚本保留的旧 Python 3.9 虚拟环境。 | 不属于当前运行；确认无需回滚后可删除。 |
-| `.models/moka-ai_m3e-base/` | 本地 M3E 向量模型。 | CLI embedding 模式和桌面 DMG 发布必备；本地私有、可重新下载。 |
+| `.venv-python*-backup-*/` | 安装脚本在发现旧 Python 环境时可能创建的备份；当前仓库没有此类备份。 | 不属于当前运行；确认无需回滚后可删除。 |
+| `.models/` | 2.3.0 以前可能遗留的本地向量模型目录；当前仓库已清理，代码、CLI 和 DMG 均不再读取。 | 非必备；若出现可安全删除，本地私有且不得提交。 |
 | `extension/node_modules/` | 插件 Node 依赖。 | 可由 `npm ci` 重建。 |
 | `desktop/node_modules/` | Electron 桌面 Node 依赖。 | 可由 `npm ci` 重建。 |
 | `src/hdu_snap.egg-info/` | Python 可编辑安装生成的包元数据。 | 可生成，不提交。 |
 | `__pycache__/`、`tests/__pycache__/` | Python 字节码缓存。 | 非项目文件，可删除。 |
 | `.pytest_cache/` | pytest 缓存。 | 非项目文件，可删除。 |
 | `build/macos-sidecar/` | PyInstaller spec、work 和分析日志。 | 可生成，不进入 DMG 的最终资源。 |
-| `desktop/resources/prepared/core-resources/` | 待打包的词典、补丁和模型副本。 | 发布时生成；删除后运行 `npm run prepare:resources`。 |
+| `desktop/resources/prepared/core-resources/` | 待打包的词典和补丁副本。 | 发布时生成；删除后运行 `npm run prepare:resources`。 |
 | `desktop/resources/prepared/sidecar/` | 冻结后的 Python sidecar。 | 发布时生成；删除后运行 `bash scripts/build_macos_sidecar.sh`。 |
 | `desktop/out/HDU-SNAP-darwin-arm64/` | Electron Forge 生成的 `.app`。 | 发布产物，可重建。 |
-| `desktop/out/make/HDU-SNAP.dmg` | 当前未签名 Apple Silicon 安装镜像。 | 交付产物，可重建，不应提交普通源码 Git。 |
+| `desktop/out/make/HDU-SNAP.dmg` | 当前 2.3.0 未签名 Apple Silicon 安装镜像，139,453,489 字节。 | 交付产物，可重建，不应提交普通源码 Git。 |
 | `desktop/.DS_Store` | Finder 元数据。 | 非项目文件，可删除。 |
 
 ### 12.2 `runtime/`
@@ -447,12 +444,11 @@ bash scripts/run_macos_dev.sh --isolated
 ### 14.4 桌面发布
 
 ```bash
-bash scripts/build_macos_sidecar.sh
 cd desktop
 npm run make:dmg
 ```
 
-`npm run make:dmg` 会准备词典、补丁和模型，并在生成后验证 `.app` 中的补丁与根目录 `patch_rules.jsonc` 完全一致。
+`npm run make:dmg` 会重建精简 sidecar、准备词典与补丁，并在生成后验证 `.app` 中的补丁与根目录 `patch_rules.jsonc` 完全一致。
 
 ## 15. 维护检查清单
 

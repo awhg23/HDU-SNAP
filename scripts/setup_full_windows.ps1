@@ -5,7 +5,6 @@ Set-Location $RootDir
 
 $VenvDir = Join-Path $RootDir ".venv"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
-$ModelDir = Join-Path $RootDir ".models\moka-ai_m3e-base"
 
 function Test-SupportedPython([string]$PythonPath) {
     if (-not $PythonPath -or -not (Test-Path -LiteralPath $PythonPath -PathType Leaf)) {
@@ -81,17 +80,13 @@ if (-not (Test-SupportedPython $VenvPython)) {
 
 Write-Host "[HDU-SNAP] Installing full dependencies..."
 & $VenvPython -m pip install -U pip
+Write-Host "[HDU-SNAP] Removing retired vector runtime packages..."
+& $VenvPython -m pip uninstall -y torch sentence-transformers transformers scikit-learn scipy numpy huggingface-hub hf-xet tokenizers safetensors sympy networkx joblib threadpoolctl fsspec filelock pillow regex 2>$null
 & $VenvPython -m pip install -r (Join-Path $RootDir "requirements.txt")
-
-if (-not (Test-Path $ModelDir)) {
-    Write-Host "[HDU-SNAP] Installing local vector model..."
-    & $VenvPython -c "from sentence_transformers import SentenceTransformer; model = SentenceTransformer('moka-ai/m3e-base'); model.save(r'$ModelDir'); print('Saved model')"
-} else {
-    Write-Host "[HDU-SNAP] Local vector model already exists: $ModelDir"
-}
+& $VenvPython -m pip check
 
 Write-Host ""
-Write-Host "[HDU-SNAP] Full 3-tier environment is ready."
+Write-Host "[HDU-SNAP] Full environment is ready."
 Write-Host ""
 Write-Host "Next step:"
 Write-Host "  .\.venv\Scripts\python.exe main.py"

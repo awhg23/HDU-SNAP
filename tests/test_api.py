@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 from fastapi.testclient import TestClient
 
 from hdu_snap.api.app import create_app
@@ -34,7 +32,6 @@ class FakePipeline:
 
 class FakeServices:
     patch_store = FakePatchStore()
-    vector_engine = SimpleNamespace(mode="fallback", status_detail="fixture", model_dir="/model")
 
     @staticmethod
     def build_pipeline():
@@ -47,7 +44,6 @@ def build_client(tmp_path, mode="normal") -> TestClient:
         data_dir=tmp_path,
         dictionary_path=tmp_path / "dictionary.json",
         patch_rules_path=tmp_path / "patch.jsonc",
-        embedding_model_dir=tmp_path / "model",
     )
     return TestClient(create_app(settings, RuntimeOptions(mode=mode, answer_count=7), FakeServices()))
 

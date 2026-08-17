@@ -27,7 +27,7 @@ class FakeClient extends EventEmitter {
     if (method === "initialize") {
       this.initializeCalls += 1;
       await new Promise((resolve) => setImmediate(resolve));
-      return { ok: true, vector_mode: "embedding" };
+      return { ok: true };
     }
     if (method === "solve") {
       this.solveCalls += 1;

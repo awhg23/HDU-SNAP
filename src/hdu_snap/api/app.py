@@ -48,9 +48,9 @@ def create_app(
             "dictionary_source": str(settings.resolved_dictionary_path),
             "patch_rule_file": str(settings.resolved_patch_rules_path),
             "patch_rule_count": len(container.patch_store.get_rules()),
-            "vector_mode": container.vector_engine.mode,
-            "vector_status_detail": container.vector_engine.status_detail,
-            "vector_model_dir": str(container.vector_engine.model_dir),
+            "vector_mode": "removed",
+            "vector_status_detail": "vector tier removed",
+            "vector_model_dir": None,
             "timestamp": int(time.time()),
         }
 

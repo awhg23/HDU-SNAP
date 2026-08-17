@@ -111,7 +111,7 @@ function renderOnboarding() {
   const checks = selfCheckResult?.checks;
   const labels = {
     system: "系统与 Apple 芯片", core: "内置答题核心", dictionary: "词典与纠错资源",
-    vectorModel: "本地向量模型", dataDirectory: "应用数据目录", webComponent: "内嵌网页组件",
+    dataDirectory: "应用数据目录", webComponent: "内嵌网页组件",
     targetNetwork: "目标站点连接", keychain: "macOS 钥匙串", deepseek: "DeepSeek（可选）"
   };
   const checkCards = checks ? Object.entries(checks).map(([key, value]) => {
@@ -132,7 +132,7 @@ function renderOnboarding() {
         ${[["01","欢迎"],["02","自检"],["03","配置"],["04","完成"]].map(([number,label], index)=>`<span class="${index <= (checks ? 2 : 1) ? "active" : ""}"><b>${number}</b>${label}</span>`).join("")}
       </div>
       <div class="section-heading"><div><span class="eyebrow">准备就绪检查</span><h2>先确认一切都在本机正常工作</h2></div><button class="soft" data-action="self-check">${icon("refresh")}${checks ? "重新检查" : "开始检查"}</button></div>
-      ${checks ? `<div class="checks">${checkCards}</div>` : `<div class="empty-note">${icon("shield")}<div><strong>还没有开始检查</strong><p>将依次检查内置核心、词典、模型、数据目录、网页组件和目标站点。</p></div></div>`}
+      ${checks ? `<div class="checks">${checkCards}</div>` : `<div class="empty-note">${icon("shield")}<div><strong>还没有开始检查</strong><p>将依次检查内置核心、词典、纠错资源、数据目录、网页组件和目标站点。</p></div></div>`}
       <div class="key-card"><div class="key-card-copy"><span class="key-icon">${icon("key")}</span><div><label for="onboarding-key">DeepSeek Key <small>可跳过</small></label><p>验证通过后，只写入 macOS 钥匙串。</p></div></div><div class="key-input-row"><input id="onboarding-key" type="password" autocomplete="off" placeholder="输入 Key"><button data-action="save-onboarding-key">验证并保存</button></div></div>
       <div class="onboarding-footer"><div class="readiness ${selfCheckResult?.ok ? "ready" : selfCheckResult ? "blocked" : "waiting"}"><span>${selfCheckResult?.ok ? icon("check") : selfCheckResult ? icon("x") : icon("minus")}</span><div><strong>${selfCheckResult ? (selfCheckResult.ok ? "可以开始使用" : "还有项目需要处理") : "等待系统自检"}</strong><small>${selfCheckResult ? (selfCheckResult.ok ? "所有必需组件已经就绪" : "修复阻断项后再试一次") : "Key 是可选项，不影响进入"}</small></div></div><button class="primary" data-action="finish-onboarding" ${selfCheckResult?.ok ? "" : "disabled"}>进入应用 ${icon("arrowRight")}</button></div>
     </section>
@@ -169,11 +169,9 @@ function decisionMethodInfo(method) {
     "补丁规则": { label: "补丁规则", tone: "patch" },
     "字典匹配": { label: "词库匹配", tone: "dictionary" },
     "词典匹配": { label: "词库匹配", tone: "dictionary" },
-    "向量相似度": { label: "向量模型", tone: "vector" },
-    "向量模型": { label: "向量模型", tone: "vector" },
     "大模型决策": { label: "AI 大模型", tone: "llm" },
     "AI 大模型": { label: "AI 大模型", tone: "llm" },
-    "向量兜底": { label: "向量兜底", tone: "fallback" }
+    "确定性兜底": { label: "确定性兜底", tone: "fallback" }
   })[raw] || { label: raw, tone: "default" };
 }
 
@@ -264,8 +262,7 @@ async function loadDiagnostic() { diagnostic = await window.hduSnap.diagnosticSt
 function renderDiagnostic() {
   setBrowserVisible(false);
   if (!diagnostic) void loadDiagnostic();
-  const vectorReady = state.core?.vector_mode === "embedding";
-  return renderShell(`<section class="health-grid"><article class="health-card card"><div class="health-card-head"><span class="health-icon sage">${icon("diagnostic")}</span><div class="health-head-actions"><span class="health-state good">${icon("check")} 核心在线</span><button class="soft compact-button" data-action="run-self-check">${icon("refresh")} 重新检查</button></div></div><span class="eyebrow">COMPONENTS</span><h2>本地组件</h2><div class="component-list"><div><span>${vectorReady?icon("check"):icon("minus")}</span><p><strong>${vectorReady ? "向量模型" : "向量兜底"}</strong><small>${vectorReady ? "本地 M3E 模型已加载" : "当前使用确定性兜底"}</small></p></div><div><span>${state.keyConfigured?icon("check"):icon("minus")}</span><p><strong>DeepSeek</strong><small>${state.keyConfigured ? "Key 已由钥匙串保护" : "未配置，可选能力"}</small></p></div><div><span>${icon("check")}</span><p><strong>内嵌网页</strong><small>隔离容器可用</small></p></div></div>${state.coreError?`<p class="error-panel">${esc(state.coreError)}</p>`:""}</article><article class="health-card card"><div class="health-card-head"><span class="health-icon terracotta">${icon("folder")}</span><span class="health-metric">${Math.round((diagnostic?.logBytes||0)/1024)} KB</span></div><span class="eyebrow">LOCAL LOGS</span><h2>日志与诊断</h2><p>日志保留 30 天或 100 MB。诊断包会排除密码、Cookie、令牌和 Key。</p><div class="health-actions"><button data-action="show-logs">${icon("folder")} Finder 中显示</button><button data-action="clear-logs">清空日志</button><button class="primary" data-action="export-diagnostic">${icon("download")} 导出诊断 ZIP</button></div><div class="privacy-note">${icon("shield")} 诊断可能包含答题内容、网页快照和页面中可见的个人信息。</div></article><article class="health-card card version-card"><div class="health-card-head"><span class="health-icon mustard">${icon("refresh")}</span><span class="version-number">v${esc(state.version)}</span></div><span class="eyebrow">VERSION</span><h2>版本维护</h2><p>当前频道：<strong>${esc(state.data.settings.updateChannel === "stable" ? "稳定版" : "测试版")}</strong></p><button data-action="check-update">立即检查新版本 ${icon("arrowRight")}</button><div class="privacy-note">${icon("info")} 只读取公开版本清单，不保存 GitHub Token，也不会自动安装更新。</div></article></section>`);
+  return renderShell(`<section class="health-grid"><article class="health-card card"><div class="health-card-head"><span class="health-icon sage">${icon("diagnostic")}</span><div class="health-head-actions"><span class="health-state good">${icon("check")} 核心在线</span><button class="soft compact-button" data-action="run-self-check">${icon("refresh")} 重新检查</button></div></div><span class="eyebrow">COMPONENTS</span><h2>本地组件</h2><div class="component-list"><div><span>${icon("check")}</span><p><strong>答题流水线</strong><small>补丁、词典与大模型接口就绪</small></p></div><div><span>${state.keyConfigured?icon("check"):icon("minus")}</span><p><strong>DeepSeek</strong><small>${state.keyConfigured ? "Key 已由钥匙串保护" : "未配置，将使用确定性兜底"}</small></p></div><div><span>${icon("check")}</span><p><strong>内嵌网页</strong><small>隔离容器可用</small></p></div></div>${state.coreError?`<p class="error-panel">${esc(state.coreError)}</p>`:""}</article><article class="health-card card"><div class="health-card-head"><span class="health-icon terracotta">${icon("folder")}</span><span class="health-metric">${Math.round((diagnostic?.logBytes||0)/1024)} KB</span></div><span class="eyebrow">LOCAL LOGS</span><h2>日志与诊断</h2><p>日志保留 30 天或 100 MB。诊断包会排除密码、Cookie、令牌和 Key。</p><div class="health-actions"><button data-action="show-logs">${icon("folder")} Finder 中显示</button><button data-action="clear-logs">清空日志</button><button class="primary" data-action="export-diagnostic">${icon("download")} 导出诊断 ZIP</button></div><div class="privacy-note">${icon("shield")} 诊断可能包含答题内容、网页快照和页面中可见的个人信息。</div></article><article class="health-card card version-card"><div class="health-card-head"><span class="health-icon mustard">${icon("refresh")}</span><span class="version-number">v${esc(state.version)}</span></div><span class="eyebrow">VERSION</span><h2>版本维护</h2><p>当前频道：<strong>${esc(state.data.settings.updateChannel === "stable" ? "稳定版" : "测试版")}</strong></p><button data-action="check-update">立即检查新版本 ${icon("arrowRight")}</button><div class="privacy-note">${icon("info")} 只读取公开版本清单，不保存 GitHub Token，也不会自动安装更新。</div></article></section>`);
 }
 
 function render() {

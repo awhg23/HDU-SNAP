@@ -68,14 +68,13 @@ bash scripts/run_macos_dev.sh --isolated
 python3.12 -m venv .venv
 .venv/bin/pip install -e ".[full,dev]"
 bash setup_full_macos.sh
-bash scripts/build_macos_sidecar.sh
 cd desktop
 npm ci
 npm test
 npm run make:dmg
 ```
 
-产物位于 `desktop/out/make/`。打包脚本只支持 Apple Silicon；模型必须已存在于 `.models/moka-ai_m3e-base/`。`npm run make:dmg` 会在生成后校验 `.app` 内的 `patch_rules.jsonc` 与仓库发布基线完全一致，不一致时构建失败。
+产物位于 `desktop/out/make/`。打包脚本只支持 Apple Silicon；`npm run make:dmg` 会自动重建不含向量模型的 Python sidecar，并在生成后校验 `.app` 内的 `patch_rules.jsonc` 与仓库发布基线完全一致，不一致时构建失败。
 
 ## 第一阶段旧版入口
 

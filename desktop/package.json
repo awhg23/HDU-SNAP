@@ -1,7 +1,7 @@
 {
   "name": "hdu-snap-desktop",
   "productName": "HDU-SNAP",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "HDU-SNAP 一体化 macOS 答题应用",
   "private": true,
   "main": "src/main/index.cjs",
@@ -15,8 +15,8 @@
     "prepare:resources": "node scripts/prepare-resources.mjs",
     "verify:package": "node scripts/verify-packaged-resources.mjs",
     "package:sidecar": "bash ../scripts/build_macos_sidecar.sh",
-    "package": "npm run build && npm run prepare:resources && electron-forge package --arch=arm64 && npm run verify:package",
-    "make:dmg": "npm run build && npm run prepare:resources && electron-forge make --arch=arm64 && npm run verify:package"
+    "package": "npm run build && npm run package:sidecar && npm run prepare:resources && electron-forge package --arch=arm64 && npm run verify:package",
+    "make:dmg": "npm run build && npm run package:sidecar && npm run prepare:resources && electron-forge make --arch=arm64 && npm run verify:package"
   },
   "dependencies": {
     "archiver": "7.0.1"

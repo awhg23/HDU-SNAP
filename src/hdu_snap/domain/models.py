@@ -21,13 +21,6 @@ class DictionaryLookupResult:
 
 
 @dataclass
-class VectorScore:
-    letter: str
-    text: str
-    score: float
-
-
-@dataclass
 class RunStats:
     processed_items: int = 0
     ai_call_count: int = 0
@@ -47,4 +40,3 @@ class RuntimeOptions:
     @property
     def is_debug(self) -> bool:
         return self.mode == "debug"
-

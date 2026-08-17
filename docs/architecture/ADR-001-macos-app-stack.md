@@ -12,6 +12,8 @@
 
 V1.3 取消 Mac App 调试模式和自动复盘。桌面端只创建正常批次，提交后保存摘要；纠错通过内置补丁、手动录入或旧版补丁导入完成。共享 Python 核心与第一阶段兼容协议暂不删除调试能力。
 
+V1.4 删除本地向量模型层。Solver 顺序调整为“补丁 → 词典 → DeepSeek → 确定性兜底”，不再依赖 Torch、Sentence Transformers 或 M3E；DeepSeek 未配置或请求失败时固定使用可审计的确定性兜底。该变更同时消除 App 内的大模型权重和 Python 机器学习运行时。
+
 ## 安全约束
 
 - 本地 UI 和远程网页均启用 `sandbox`、`contextIsolation` 与 `webSecurity`，并禁用 Node 集成。
@@ -25,7 +27,7 @@ V1.3 取消 Mac App 调试模式和自动复盘。桌面端只创建正常批次
 
 ## 资源与数据
 
-- 内置词典和 M3E 模型随 App 资源发布。
+- 内置词典和补丁基线随 App 资源发布；不携带本地向量模型。
 - 用户数据库、批次摘要、纠错和加密 Key 文件位于 macOS Application Support 目录。
 - 批次与纠错不含账号身份；Cookie 和网站存储只保留在唯一的持久 partition 中。
 - 数据结构升级前保留最近三份备份，更高版本数据会阻止旧 App 继续运行。
@@ -36,4 +38,4 @@ V1.3 取消 Mac App 调试模式和自动复盘。桌面端只创建正常批次
 
 ## 后果
 
-App 体积会显著增加，因为 Electron、PyTorch、Sentence Transformers 与本地模型均需自包含。换取的结果是最终用户无需安装任何开发环境，并能在 App 内保留单一登录会话。Windows 后续可以复用 Electron 主体与 Python sidecar；Android 仍需独立评估 WebView 和核心运行方案。
+App 仍需自包含 Electron 与 Python sidecar，但不再携带 PyTorch、Sentence Transformers 和本地模型。打包时 `prepared` 资源只作为 `extraResource` 写入一次，不重复进入 `app.asar`，因此安装包和落盘体积明显下降。最终用户仍无需安装任何开发环境，并能在 App 内保留单一登录会话。Windows 后续可以复用 Electron 主体与 Python sidecar；Android 仍需独立评估 WebView 和核心运行方案。

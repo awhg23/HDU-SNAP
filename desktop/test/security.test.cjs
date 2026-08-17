@@ -105,7 +105,8 @@ test("the desktop UI exposes only normal answering and keeps the run bar on one 
   assert.match(renderer, /answer-history-panel/);
   assert.match(renderer, /词库匹配/);
   assert.match(renderer, /AI 大模型/);
-  assert.match(renderer, /向量模型/);
+  assert.match(renderer, /确定性兜底/);
+  assert.doesNotMatch(renderer, /向量模型|向量兜底|向量相似度/);
   assert.match(main, /let answerHistory = \[\]/);
   assert.match(main, /answerHistory: structuredClone\(answerHistory\)/);
   assert.doesNotMatch(store, /answerHistory/);
@@ -156,10 +157,17 @@ test("the desktop app uses one instance and gates answering on a ready core", ()
 test("the packaged resources include and self-check the patch baseline", () => {
   const prepare = fs.readFileSync(path.join(desktopRoot, "scripts/prepare-resources.mjs"), "utf8");
   const main = fs.readFileSync(path.join(desktopRoot, "src/main/index.cjs"), "utf8");
+  const sidecarBuild = fs.readFileSync(path.join(desktopRoot, "../scripts/build_macos_sidecar.sh"), "utf8");
+  const forge = fs.readFileSync(path.join(desktopRoot, "forge.config.cjs"), "utf8");
   const manifest = JSON.parse(fs.readFileSync(path.join(desktopRoot, "package.json"), "utf8"));
   assert.match(prepare, /patch_rules\.jsonc/);
   assert.match(prepare, /cp\(patchRulesSource/);
   assert.match(main, /coreHealth\?\.checks\?\.patch_bundle/);
   assert.match(main, /fs\.existsSync\(patchRulesPath\)/);
+  assert.doesNotMatch(prepare, /moka-ai|m3e-base|modelSource/);
+  assert.doesNotMatch(sidecarBuild, /sentence_transformers|transformers|sklearn|torch/);
+  assert.match(forge, /resources\\\/prepared/);
+  assert.match(forge, /electron-v43\.3\.0-darwin-arm64\.zip/);
+  assert.match(manifest.scripts["make:dmg"], /package:sidecar/);
   assert.match(manifest.scripts["make:dmg"], /verify:package/);
 });

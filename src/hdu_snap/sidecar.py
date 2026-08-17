@@ -14,7 +14,7 @@ from hdu_snap.api.contracts import ReviewResultItemPayload, parse_client_message
 from hdu_snap.application.solver import SolverPipeline
 from hdu_snap.bootstrap import ServiceContainer
 from hdu_snap.config import Settings
-from hdu_snap.domain.models import RuntimeOptions, VectorScore
+from hdu_snap.domain.models import RuntimeOptions
 from hdu_snap.domain.text import clean_option_text, clean_source_text, normalize_text
 from hdu_snap.infrastructure.models import LLMEngine
 from hdu_snap.infrastructure.stores import PatchRuleStore
@@ -47,18 +47,11 @@ class CoreRuntime:
         patch_existed = patch_path.exists()
         if packaged_rules and not patch_existed:
             shutil.copy2(packaged_patch_path, patch_path)
-        packaged_model_dir = resource_dir / "models" / "moka-ai_m3e-base"
-        development_model_dir = resource_dir / ".models" / "moka-ai_m3e-base"
         settings = Settings(
             _env_file=None,
             data_dir=data_dir,
             dictionary_path=resource_dir / "CET" / "Data.lexicon.cache.json",
             patch_rules_path=patch_path,
-            embedding_model_dir=(
-                packaged_model_dir
-                if packaged_model_dir.exists()
-                else development_model_dir
-            ),
             deepseek_api_key=str(params.get("api_key") or "").strip() or None,
             mode="normal",
             answer_count=100,
@@ -73,7 +66,6 @@ class CoreRuntime:
         self.pipelines = {
             mode: SolverPipeline(
                 dictionary_engine=container.dictionary_engine,
-                vector_engine=container.vector_engine,
                 llm_engine=container.llm_engine,
                 patch_store=container.patch_store,
                 debug_store=container.debug_store,
@@ -98,13 +90,10 @@ class CoreRuntime:
             "patch_bundle": self.packaged_patch_count > 0,
             "patch_store": settings.resolved_patch_rules_path.is_file(),
             "data_directory": settings.resolved_data_dir.is_dir(),
-            "vector_model": container.vector_engine.mode == "embedding",
         }
         return {
             "ok": all(checks.values()),
             "checks": checks,
-            "vector_mode": container.vector_engine.mode,
-            "vector_status": container.vector_engine.status_detail,
             "deepseek_configured": bool(settings.deepseek_api_key),
             "protocol_version": 1,
         }
@@ -286,16 +275,9 @@ class CoreRuntime:
             timeout_seconds=settings.llm_timeout_seconds,
             max_retries=0,
         )
-        ranked = [
-            VectorScore("A", "manage", 0.9),
-            VectorScore("B", "finish", 0.4),
-            VectorScore("C", "stimulus", 0.2),
-            VectorScore("D", "accomplish", 0.1),
-        ]
         decision = await engine.choose(
             "管理，经营",
             {"A": "manage", "B": "finish", "C": "stimulus", "D": "accomplish"},
-            ranked,
             self.pipelines["normal"].stats,
         )
         if decision.method != "大模型决策":

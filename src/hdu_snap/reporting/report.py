@@ -1,9 +1,6 @@
 import json
-import math
-import re
 from collections import Counter
 from pathlib import Path
-from statistics import mean
 
 from hdu_snap.config import Settings, load_settings
 
@@ -12,8 +9,7 @@ ERROR_PATH = Path("debug_error_1000.json")
 HTML_PATH = Path("debug_report.html")
 SUMMARY_PATH = Path("debug_report_summary.json")
 
-METHODS = ("补丁规则", "字典匹配", "向量相似度", "大模型决策", "结果页采集")
-VECTOR_DETAIL_RE = re.compile(r"top=(\d+\.\d+), second=(\d+\.\d+), margin=(\d+\.\d+)")
+METHODS = ("补丁规则", "字典匹配", "大模型决策", "确定性兜底", "结果页采集")
 
 
 def load_json(path: Path):
@@ -45,15 +41,6 @@ def split_sessions(recent_rows):
     return sessions
 
 
-def parse_vector_detail(row):
-    detail = row.get("detail") or ""
-    match = VECTOR_DETAIL_RE.search(detail)
-    if not match:
-        return None
-    top, second, margin = map(float, match.groups())
-    return {"top": top, "second": second, "margin": margin}
-
-
 def count_by_method(rows):
     counter = Counter(
         (
@@ -82,36 +69,6 @@ def build_session_stats(sessions):
             }
         )
     return result
-
-
-def build_vector_stats(rows):
-    parsed = []
-    for row in rows:
-        if row["method"] != "向量相似度":
-            continue
-        detail = parse_vector_detail(row)
-        if detail:
-            parsed.append(detail)
-
-    if not parsed:
-        return {
-            "count": 0,
-            "top_avg": None,
-            "second_avg": None,
-            "margin_avg": None,
-            "margin_min": None,
-            "margin_max": None,
-        }
-
-    return {
-        "count": len(parsed),
-        "top_avg": round(mean(item["top"] for item in parsed), 4),
-        "second_avg": round(mean(item["second"] for item in parsed), 4),
-        "margin_avg": round(mean(item["margin"] for item in parsed), 4),
-        "margin_min": round(min(item["margin"] for item in parsed), 4),
-        "margin_max": round(max(item["margin"] for item in parsed), 4),
-        "margins": [round(item["margin"], 4) for item in parsed],
-    }
 
 
 def svg_bar_chart(title, data_map, width=520, height=240, color="#3563e9"):
@@ -225,9 +182,6 @@ def build_summary(recent, errors):
     recent_methods = count_by_method(recent)
     error_methods = count_by_method(errors)
     session_stats = build_session_stats(sessions)
-    vector_recent = build_vector_stats(recent)
-    vector_error = build_vector_stats(errors)
-
     return {
         "recent_count": len(recent),
         "error_count": len(errors),
@@ -235,8 +189,6 @@ def build_summary(recent, errors):
         "error_methods": error_methods,
         "session_stats": session_stats,
         "session_error_points": build_session_error_points({"session_stats": session_stats}, errors),
-        "vector_recent": vector_recent,
-        "vector_error": vector_error,
     }
 
 
@@ -274,12 +226,6 @@ def build_session_error_points(summary, errors):
 
 def write_report(summary, errors):
     session_error_points = summary.get("session_error_points") or build_session_error_points(summary, errors)
-    margin_buckets = {
-        "<0.06": sum(1 for m in summary["vector_recent"].get("margins", []) if m < 0.06),
-        "<0.08": sum(1 for m in summary["vector_recent"].get("margins", []) if m < 0.08),
-        "<0.10": sum(1 for m in summary["vector_recent"].get("margins", []) if m < 0.10),
-        ">=0.10": sum(1 for m in summary["vector_recent"].get("margins", []) if m >= 0.10),
-    }
 
     html = f"""
 <!doctype html>
@@ -356,13 +302,11 @@ def write_report(summary, errors):
     <div class="stat"><div class="label">最近题目数</div><div class="value">{summary['recent_count']}</div></div>
     <div class="stat"><div class="label">录入错题数</div><div class="value">{summary['error_count']}</div></div>
     <div class="stat"><div class="label">最近轮次数</div><div class="value">{len(summary['session_stats'])}</div></div>
-    <div class="stat"><div class="label">最近向量判题数</div><div class="value">{summary['vector_recent']['count']}</div></div>
   </div>
   <div class="grid">
     {svg_bar_chart("最近 500 题方法分布", summary["recent_methods"], color="#0f766e")}
     {svg_bar_chart("错题方法分布", summary["error_methods"], color="#dc2626")}
     {svg_line_chart("各轮错题数量", session_error_points)}
-    {svg_bar_chart("最近向量 margin 关键区间", margin_buckets, color="#7c3aed")}
   </div>
   {render_error_table(errors)}
 </body>

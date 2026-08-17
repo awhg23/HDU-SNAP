@@ -251,13 +251,10 @@ async function selfCheck() {
   const major = Number(os.release().split(".")[0]);
   const dictionaryPath = path.join(resourceRoot(), "CET", "Data.lexicon.cache.json");
   const patchRulesPath = path.join(resourceRoot(), "patch_rules.jsonc");
-  const modelPath = path.join(resourceRoot(), "models", "moka-ai_m3e-base");
-  const modelFallback = path.join(resourceRoot(), ".models", "moka-ai_m3e-base");
   const checks = {
     system: process.platform === "darwin" && process.arch === "arm64" && major >= 22,
     core: Boolean(coreHealth?.checks?.dictionary && coreHealth?.checks?.patch_bundle),
     dictionary: fs.existsSync(dictionaryPath) && fs.existsSync(patchRulesPath),
-    vectorModel: (fs.existsSync(modelPath) || fs.existsSync(modelFallback)) && coreHealth?.vector_mode === "embedding",
     dataDirectory: fs.existsSync(dataRoot()) && fs.statSync(dataRoot()).isDirectory(),
     webComponent: Boolean(browser),
     targetNetwork: await checkNetwork(store.state.settings.learningHome),
