@@ -2,6 +2,30 @@
 
 ## 架构
 
+第二阶段 macOS App：
+
+```text
+Electron 主进程
+├── 本地应用 UI（严格 CSP、sandbox、contextIsolation）
+├── WebContentsView（单一持久 persist: 分区）
+│   └── 站点适配器预加载（DOM 识别、选择答案、翻页、提交观察）
+├── 批次状态机、记录、迁移、诊断与版本检查
+├── safeStorage / macOS Keychain（仅 DeepSeek Key）
+└── JSON Lines stdio
+    └── PyInstaller Python sidecar
+        └── 现有 Solver、词典、向量、DeepSeek 与补丁存储
+```
+
+Mac App 主路径不启动 FastAPI，也不开放本机端口。`src/hdu_snap/sidecar.py` 复用现有应用层和基础设施，通过逐行 JSON 请求响应与 Electron 通信；协议输出固定走 stdout，诊断日志固定走 stderr。网页永远无法访问 Key 或 sidecar。
+
+Electron 主进程通过单实例锁避免两个进程同时操作同一数据目录。`CoreSupervisor` 串行化 sidecar 初始化，所有业务请求先经过就绪门控；若运行中收到 `CoreNotInitializedError` 或发现 sidecar 意外退出，只重新初始化并重试当前请求一次。题目层的三次重试只统计恢复后仍然失败的请求。新增的 IPC 关联日志只记录 sidecar PID、请求编号、方法和错误类型，不记录请求参数或 Key；原有节点校验日志仍按产品诊断语义保留题目和选项。
+
+远程网页使用 `nodeIntegration=false`、`contextIsolation=true`、`sandbox=true` 和 `webSecurity=true`。任意 HTTPS 可浏览，但自动化只对 `skl.hduhelp.com` 与 `skl.hdu.edu.cn` 启用；HTTP 需要逐次确认，证书错误直接拒绝。App 只使用一个持久化 session partition，不解析账号身份；V1.0 升级时沿用一个旧分区以保留登录状态。
+
+学习页的 412px `WebContentsView` 始终在侧栏以外的主内容区水平居中；本地答题详情面板独立贴近窗口右侧，宽度在 214–280px 范围内自适应，窗口最小宽度为 1100px，面板不得覆盖移动画布。主进程在内存中维护当前批次的逐题展示数据，renderer 将最新一题置顶并提供独立滚动；该数组不进入 `DesktopStore`、批次导出或诊断状态，新建批次和退出进程后清空。
+
+第一阶段兼容架构（Mac App 真实验收前保留）：
+
 ```text
 main.py / hdu-snap CLI
         │
@@ -25,13 +49,23 @@ Python 模块导入不会创建文件、加载向量模型或发起网络请求�
 
 ## 答题流程
 
+Mac App 的运行控制由 `desktop/src/shared/batch-machine.cjs` 管理。运行中锁定导航和用户网页点击；睡眠会自动暂停；同题失败三次进入错误暂停。达到目标题量后，站点适配器只选择答案并发送 `final-pending`，随后解锁网页供用户亲自提交。只有检测到用户提交点击后才开始 15 秒结果页识别，超时允许人工二次确认。
+
+纠错补丁还可以在设置页手动添加，至少填写题目和正确答案；同题冲突需确认后替换。直接导入接受 JSON/JSONC，旧项目迁移读取根目录 `patch_rules.jsonc`，所有入口最终调用同一个 sidecar 补丁存储。
+
+Mac App 只提供正常答题，不遍历结果页、不自动复盘，也不持久化逐题调试内容。第一阶段 CLI/插件仍保留原有调试协议；共享 sidecar 的兼容方法暂不作为桌面 UI 功能暴露。
+
+仓库根目录 `patch_rules.jsonc` 同时是 Mac App 的发布补丁基线。资源准备脚本将其原样复制到 `Contents/Resources/prepared/core-resources/`；sidecar 在首次启动时原样复制到应用数据目录，升级时按规范化题目只合并缺失来源，已有用户规则优先。核心健康检查要求内置补丁非空，Electron 自检同时检查资源文件存在。Forge 完成后 `verify-packaged-resources.mjs` 对源文件和 `.app` 内文件做逐字节校验。
+
+旧插件流程：
+
 1. 用户手动登录并进入题目页。
 2. 内容脚本等待后端安全配置，然后监听题目 DOM。
 3. 后台脚本通过 WebSocket 将题目发送到本地后端。
 4. Solver 按 `补丁 -> 字典 -> 向量 -> LLM/兜底` 决策。
 5. 内容脚本点击选项并翻页。
 6. 达到配置数量后挂起，不点击提交。
-7. 调试模式下，结果页错题会回传并写入补丁及调试记录。
+7. 旧版调试模式下，结果页错题会回传并写入补丁及调试记录；此能力不属于 Mac App。
 
 ## API 协议
 
@@ -81,6 +115,21 @@ cd extension
 npm ci
 npm test
 npm run build
+
+cd ../desktop
+npm ci
+npm test
+npm run build
 ```
+
+真实站点的日常源码验收从仓库根目录执行：
+
+```bash
+bash scripts/run_macos_dev.sh
+```
+
+该模式使用默认应用数据目录，与安装版共享网页登录会话和记录，因此必须先完全退出已安装版。`bash scripts/run_macos_dev.sh --isolated` 改用 `runtime/desktop-dev/`，适合破坏性或首次引导测试。单实例锁按数据目录生效；日常修改不生成 DMG，只有发布和安装验收才执行下面的打包流程。
+
+打包要求 Xcode、Apple Silicon Python 3.10+ 和完整本地模型。`scripts/build_macos_sidecar.sh` 生成冻结核心，`desktop/scripts/prepare-resources.mjs` 准备词典、补丁基线和模型，Electron Forge 生成未签名 App/DMG；构建末尾会校验安装包补丁与仓库基线一致。技术选型记录见 `docs/architecture/ADR-001-macos-app-stack.md`。
 
 CI 在 Ubuntu Python 3.10/3.12、macOS 3.10 和 Windows 3.10 上运行轻量测试；插件任务验证测试、构建以及 `dist/` 是否与源码同步。CI 不下载向量模型、不请求 DeepSeek、不访问真实题目站点。

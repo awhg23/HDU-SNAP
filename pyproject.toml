@@ -26,10 +26,12 @@ dev = [
   "pytest>=8.2,<9.0",
   "pytest-asyncio>=0.23,<1.0",
   "websockets>=12,<16",
+  "pyinstaller>=6.10,<7.0",
 ]
 
 [project.scripts]
 hdu-snap = "hdu_snap.cli:main"
+hdu-snap-sidecar = "hdu_snap.sidecar:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -41,4 +43,3 @@ where = ["src"]
 addopts = "-q"
 testpaths = ["tests"]
 asyncio_mode = "auto"
-

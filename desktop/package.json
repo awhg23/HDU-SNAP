@@ -1,0 +1,30 @@
+{
+  "name": "hdu-snap-desktop",
+  "productName": "HDU-SNAP",
+  "version": "2.2.0",
+  "description": "HDU-SNAP 一体化 macOS 答题应用",
+  "private": true,
+  "main": "src/main/index.cjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "npm run dev",
+    "dev": "npm run build && electron .",
+    "dev:isolated": "npm run build && electron . --hdu-snap-user-data-dir=../runtime/desktop-dev",
+    "test": "node --test test/*.test.cjs",
+    "test:electron-exit": "electron test/electron-exit-smoke.cjs",
+    "prepare:resources": "node scripts/prepare-resources.mjs",
+    "verify:package": "node scripts/verify-packaged-resources.mjs",
+    "package:sidecar": "bash ../scripts/build_macos_sidecar.sh",
+    "package": "npm run build && npm run prepare:resources && electron-forge package --arch=arm64 && npm run verify:package",
+    "make:dmg": "npm run build && npm run prepare:resources && electron-forge make --arch=arm64 && npm run verify:package"
+  },
+  "dependencies": {
+    "archiver": "7.0.1"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "7.11.2",
+    "@electron-forge/maker-dmg": "7.11.2",
+    "electron": "43.3.0",
+    "esbuild": "0.28.1"
+  }
+}

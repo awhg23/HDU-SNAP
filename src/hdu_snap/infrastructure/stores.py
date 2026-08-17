@@ -87,7 +87,7 @@ class PatchRuleStore:
         self._ensure_file()
         self.rules = self._load_rules()
         if seed_defaults:
-            self.seed_defaults(DEFAULT_PATCH_RULES)
+            self.seed_missing_sources(DEFAULT_PATCH_RULES)
 
     def _ensure_file(self) -> None:
         if not self.path.exists():
@@ -155,6 +155,43 @@ class PatchRuleStore:
         self.rules.append(new_rule)
         self.save()
 
+    def replace_source_rule(
+        self,
+        source_text: str,
+        answer_text: str,
+        wrong_answer_text: str,
+        note: str,
+    ) -> None:
+        normalized_source = normalize_text(clean_source_text(source_text))
+        if not normalized_source:
+            return
+        self.rules = [
+            rule
+            for rule in self.rules
+            if normalize_text(clean_source_text(rule["source_text"])) != normalized_source
+        ]
+        self.upsert_rule(source_text, answer_text, wrong_answer_text, note)
+
+    def delete_rule(self, source_text: str, answer_text: str) -> bool:
+        key = (
+            normalize_text(clean_source_text(source_text)),
+            normalize_text(clean_option_text(answer_text)),
+        )
+        before = len(self.rules)
+        self.rules = [
+            rule
+            for rule in self.rules
+            if (
+                normalize_text(clean_source_text(rule["source_text"])),
+                normalize_text(clean_option_text(rule["answer_text"])),
+            )
+            != key
+        ]
+        if len(self.rules) == before:
+            return False
+        self.save()
+        return True
+
     def seed_defaults(self, rules: list[dict[str, str]]) -> None:
         changed = False
         existing = {
@@ -173,6 +210,33 @@ class PatchRuleStore:
                 continue
             self.rules.append(dict(rule))
             existing.add(key)
+            changed = True
+        if changed:
+            self.save()
+
+    def seed_missing_sources(self, rules: list[dict[str, str]]) -> None:
+        """Add packaged baseline rules without replacing user-owned source rules."""
+        changed = False
+        existing_sources = {
+            normalize_text(clean_source_text(rule["source_text"]))
+            for rule in self.rules
+        }
+        for rule in rules:
+            source = str(rule.get("source_text", "")).strip()
+            answer = str(rule.get("answer_text", "")).strip()
+            source_key = normalize_text(clean_source_text(source))
+            answer_key = normalize_text(clean_option_text(answer))
+            if not source_key or not answer_key or source_key in existing_sources:
+                continue
+            self.rules.append(
+                {
+                    "source_text": source,
+                    "answer_text": answer,
+                    "wrong_answer_text": str(rule.get("wrong_answer_text", "")).strip(),
+                    "note": str(rule.get("note", "")).strip(),
+                }
+            )
+            existing_sources.add(source_key)
             changed = True
         if changed:
             self.save()

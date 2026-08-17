@@ -1,6 +1,8 @@
 # HDU-SNAP
 
-HDU-SNAP 是一个本地运行的英语单词题自动化工具，由 Python 后端和 Chrome 插件组成。
+HDU-SNAP 是一个本地运行的英语单词题自动化工具。第二阶段正在将 Python 答题核心和网页自动化整合为自包含的 Apple Silicon macOS App；第一阶段的 Python 后端与 Chrome 插件暂时保留，用于行为对照和回退。
+
+开发者可先阅读 [开发文件指南](docs/DEVELOPMENT_FILE_GUIDE.md)，了解每个文件属于命令行版、Chrome 插件、共享核心还是桌面版，以及是否可以删除或重新生成。
 
 后端按照以下顺序选择答案：
 
@@ -9,9 +11,45 @@ HDU-SNAP 是一个本地运行的英语单词题自动化工具，由 Python 后
 3. 本地向量模型
 4. DeepSeek 或确定性兜底
 
-插件负责识别网页题目、点击答案和翻页。最后一题只会选择答案，**不会自动提交**。
+无论使用 Mac App 还是旧插件，最后一题都只会选择答案，**不会自动提交**。
 
-## Windows 快速开始
+## macOS App（第二阶段）
+
+要求 Apple Silicon 与 macOS 13+。运行时不依赖外部 Python、Node、Chrome 或浏览器插件，DeepSeek Key 仅保存到 macOS 钥匙串。
+
+日常修复验证不需要重新生成或安装 DMG。先完全退出 `/Applications/HDU-SNAP.app`，再从源码启动；开发版直接使用现有的 `~/Library/Application Support/HDU-SNAP/`，因此网页登录会话和记录可以继续使用：
+
+```bash
+bash scripts/run_macos_dev.sh
+```
+
+首次运行前需要在 `desktop/` 执行一次 `npm ci`。如需完全隔离的临时数据和登录会话，可执行 `bash scripts/run_macos_dev.sh --isolated`；数据写入已忽略的 `runtime/desktop-dev/`。开发版与已安装版受单实例保护，不能同时运行。
+
+自动测试与构建：
+
+```bash
+.venv/bin/pytest
+cd desktop
+npm test
+npm run build
+```
+
+只有准备交付或做安装验收时才生成自包含 sidecar 和未签名 DMG：
+
+```bash
+.venv/bin/pip install -e ".[full,dev]"
+bash scripts/build_macos_sidecar.sh
+cd desktop
+npm run make:dmg
+```
+
+DMG 位于 `desktop/out/make/`。未签名版本首次打开时，需要在 Finder 中右键 App 选择“打开”，或在“系统设置 → 隐私与安全性”中手动允许。
+
+Mac App 使用一份持久网站数据容器，不识别或记录姓名学号。主路径通过标准输入/输出直接调用答题核心，不监听本机 HTTP/WebSocket 端口。桌面端只提供正常答题，不自动复盘，也不保存逐题调试内容。数据位于 `~/Library/Application Support/HDU-SNAP/`。设置页可以手动添加纠错补丁，也可以直接导入旧版 JSON/JSONC 或从第一阶段项目目录迁入 `patch_rules.jsonc`。
+
+仓库根目录的 `patch_rules.jsonc` 是发布内置补丁基线。新安装会把它完整播种到用户数据目录；升级只补入用户补丁中尚不存在的题目，不覆盖已有手动修正。DMG 构建完成后会强制校验 App 内补丁与仓库基线逐字节一致。
+
+## 旧版 Windows / 插件快速开始
 
 需要 Python 3.10+、Chrome 和可选的 DeepSeek API Key。
 

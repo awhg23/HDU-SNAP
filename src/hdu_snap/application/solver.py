@@ -5,6 +5,7 @@ import logging
 import re
 import sys
 import time
+from io import TextIOBase
 from typing import Any
 
 from hdu_snap.api.contracts import ReviewResultItemPayload
@@ -27,6 +28,7 @@ class SolverPipeline:
         debug_store: DebugArtifactStore,
         runtime: RuntimeOptions,
         stats: RunStats | None = None,
+        validation_stream: TextIOBase | None = None,
     ) -> None:
         self.dictionary_engine = dictionary_engine
         self.vector_engine = vector_engine
@@ -35,6 +37,7 @@ class SolverPipeline:
         self.debug_store = debug_store
         self.runtime = runtime
         self.stats = stats or RunStats()
+        self.validation_stream = validation_stream or sys.stdout
         self.session_records: list[dict[str, Any]] = []
 
     def _lookup_patch_override(self, source_text: str, options: dict[str, str]) -> TierDecision | None:
@@ -77,23 +80,28 @@ class SolverPipeline:
         self.stats.record_item()
         return decision
 
-    @staticmethod
-    def _print_validation_log(item_id: int, source_text: str, options: dict[str, str], decision: TierDecision) -> None:
+    def _print_validation_log(
+        self,
+        item_id: int,
+        source_text: str,
+        options: dict[str, str],
+        decision: TierDecision,
+    ) -> None:
         option_line = " | ".join(f"{letter}. {options[letter]}" for letter in LETTER_ORDER)
-        print("[节点校验日志]")
-        print(f"第{item_id}题: {source_text}")
-        print(f"候选项: {option_line}")
-        print(f"处理方式: {decision.method}")
-        print(f"决策结果: {decision.target}")
-        print("------------------------")
+        print("[节点校验日志]", file=self.validation_stream)
+        print(f"第{item_id}题: {source_text}", file=self.validation_stream)
+        print(f"候选项: {option_line}", file=self.validation_stream)
+        print(f"处理方式: {decision.method}", file=self.validation_stream)
+        print(f"决策结果: {decision.target}", file=self.validation_stream)
+        print("------------------------", file=self.validation_stream)
 
     def print_final_summary(self, total_items: int) -> None:
-        print("========================")
-        print("[自动化测试运行结束]")
-        print(f"总计处理测试项: {total_items} 个")
-        print(f"触发大模型 (Tier 3) 决策总次数: {self.stats.ai_call_count} 次")
-        print("状态: 挂起，等待人工确认表单...")
-        print("========================")
+        print("========================", file=self.validation_stream)
+        print("[自动化测试运行结束]", file=self.validation_stream)
+        print(f"总计处理测试项: {total_items} 个", file=self.validation_stream)
+        print(f"触发大模型 (Tier 3) 决策总次数: {self.stats.ai_call_count} 次", file=self.validation_stream)
+        print("状态: 挂起，等待人工确认表单...", file=self.validation_stream)
+        print("========================", file=self.validation_stream)
 
     def _record_debug_log(
         self,

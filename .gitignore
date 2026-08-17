@@ -6,6 +6,10 @@ CET/.DS_Store
 .models/
 *.egg-info/
 extension/node_modules/
+desktop/node_modules/
+desktop/resources/prepared/
+desktop/out/
+build/
 __pycache__/
 *.pyc
 *.pyo
