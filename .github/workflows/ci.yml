@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  python-lite:
+  python-core:
     name: Python ${{ matrix.python }} / ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -27,36 +27,13 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-      - name: Install lite and development dependencies
+      - name: Install shared-core development dependencies
         run: python -m pip install -e ".[dev]"
       - name: Run Python tests
         run: python -m pytest
       - name: Check shell script syntax
         if: runner.os != 'Windows'
-        run: bash -n start_backend.sh setup_full_macos.sh install_vector_tier.sh scripts/*.sh scripts/lib/*.sh
-      - name: Check compatibility entry points
-        run: |
-          python main.py config --check
-          python -c "import generate_debug_report"
-
-  extension:
-    name: Chrome extension
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: extension
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: extension/package-lock.json
-      - run: npm ci
-      - run: npm test
-      - run: npm run build
-      - name: Verify committed bundles are current
-        run: git diff --exit-code -- dist
+        run: bash -n scripts/*.sh
 
   desktop:
     name: macOS App sources
@@ -76,3 +53,20 @@ jobs:
       - run: npm run build
       - name: Verify committed desktop bundles are current
         run: git diff --exit-code -- dist
+
+  electron-exit:
+    name: Electron exit smoke / macOS
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:electron-exit

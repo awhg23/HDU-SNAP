@@ -33,7 +33,7 @@ contextBridge.exposeInMainWorld("hduSnap", Object.freeze({
   removeKey: () => invoke("key:remove"),
   listPatches: () => invoke("patch:list"),
   updatePatch: (payload) => invoke("patch:update", payload),
-  captureWrongQuestion: () => invoke("patch:capture-current"),
+  captureWrongQuestion: (payload) => invoke("patch:capture-current", payload),
   deletePatch: (payload) => invoke("patch:delete", payload),
   exportPatches: () => invoke("patch:export"),
   importPatches: (payload) => invoke("patch:import", payload),
@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld("hduSnap", Object.freeze({
   clearLogs: () => invoke("diagnostic:clear-logs"),
   showLogs: () => invoke("diagnostic:show-logs"),
   checkUpdate: (manual = true) => invoke("update:check", { manual }),
+  openLatestRelease: () => invoke("update:open-release"),
   resetAll: (confirmation) => invoke("data:reset-all", { confirmation }),
   onState: (listener) => {
     const wrapped = (_event, value) => listener(value);

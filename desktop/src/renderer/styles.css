@@ -275,6 +275,7 @@ code { border-radius: 6px; padding: 2px 6px; color: var(--terracotta-deep); back
 .table-toolbar > div { display: flex; align-items: flex-end; gap: 8px; }
 .table-toolbar label { display: grid; gap: 4px; color: var(--muted); font-size: 10px; font-weight: 700; }
 .table-toolbar select { min-width: 180px; }
+.table-toolbar input[type="date"] { width: 142px; min-height: 40px; }
 .table-toolbar-tail { justify-content: flex-end; flex-wrap: wrap; }
 .table-toolbar-tail > span { color: var(--muted); font-size: 11px; }
 .table-toolbar-actions { display: flex; align-items: center; gap: 7px; }
@@ -295,6 +296,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .table-empty span { font-size: 11px; }
 .card-footer { display: flex; align-items: center; gap: 7px; padding: 13px 20px; border-top: 1px solid var(--line); color: var(--muted); background: #f5ecde; font-size: 10px; }
 .card-footer .icon { width: 14px; height: 14px; }
+.records-footer { justify-content: space-between; }
+.records-footer > span, .pagination { display: flex; align-items: center; gap: 7px; }
+.pagination strong { min-width: 48px; color: var(--ink); text-align: center; font-variant-numeric: tabular-nums; }
+.pagination button { min-height: 32px; padding: 5px 10px; font-size: 10px; }
 
 .settings-card { padding: 0; overflow: hidden; }
 .tabs { display: flex; gap: 7px; padding: 12px 14px; border-bottom: 1px solid var(--line); background: #eee3d3; }
@@ -367,10 +372,16 @@ tbody tr:last-child td { border-bottom: 0; }
 .component-list strong { font-size: 11px; }
 .component-list small { margin-top: 1px; color: var(--muted); font-size: 9px; }
 .health-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: auto; }
+.privacy-confirm { display: flex; align-items: flex-start; gap: 9px; margin: 4px 0 16px; border: 1px solid #d8c8b4; border-radius: 12px; padding: 11px; color: var(--muted); background: #f0e7da; font-size: 10px; line-height: 1.5; }
+.privacy-confirm input { flex: 0 0 auto; margin-top: 1px; }
 .privacy-note { display: flex; align-items: flex-start; gap: 7px; margin-top: 16px; border-radius: 11px; padding: 10px; color: var(--muted); background: #f0e7da; font-size: 10px; line-height: 1.5; }
 .privacy-note .icon { width: 14px; height: 14px; margin-top: 1px; color: var(--sage); }
 .version-card { grid-column: 1 / -1; min-height: 230px; background: linear-gradient(120deg, rgba(255,250,240,.96), rgba(245,227,184,.48)); }
-.version-card button { align-self: flex-start; margin-top: auto; }
+.version-actions { display: flex; align-items: center; gap: 8px; margin-top: auto; }
+.release-summary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; margin-bottom: 18px; border: 1px solid #ddc99e; border-radius: 13px; padding: 11px 13px; background: rgba(255,250,240,.72); }
+.release-summary strong { color: var(--terracotta-deep); }
+.release-summary span { color: var(--ink); font-size: 11px; }
+.release-summary code { grid-column: 1 / -1; overflow: hidden; color: var(--muted); background: transparent; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .error-panel { border: 1px solid #dda9a2; border-radius: 12px; padding: 11px 13px; color: #843a33; background: var(--danger-soft); font-size: 11px; }
 
 .recovery-page { display: grid; place-items: center; min-height: 100vh; padding: 40px; }

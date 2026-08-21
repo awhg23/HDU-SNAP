@@ -34,6 +34,15 @@ mkdir -p "${OUTPUT_DIR}" "${BUILD_DIR}"
   --workpath "${BUILD_DIR}/work" \
   --specpath "${BUILD_DIR}" \
   --hidden-import openai \
+  --exclude-module fastapi \
+  --exclude-module starlette \
+  --exclude-module uvicorn \
+  --exclude-module uvloop \
+  --exclude-module websockets \
+  --exclude-module torch \
+  --exclude-module sentence_transformers \
+  --exclude-module transformers \
+  --exclude-module sklearn \
   "${PROJECT_DIR}/src/hdu_snap/sidecar.py"
 
 echo "[HDU-SNAP] sidecar 已生成：${OUTPUT_DIR}/hdu-snap-sidecar/hdu-snap-sidecar"

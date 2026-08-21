@@ -60,7 +60,6 @@ async def test_sidecar_exposes_a_recoverable_not_initialized_error() -> None:
         await runtime.solve(
             {
                 "session_id": "s1",
-                "mode": "normal",
                 "item_id": 1,
                 "source_text": "管理，经营",
                 "options": {
@@ -89,7 +88,6 @@ async def test_sidecar_solves_without_writing_protocol_noise_to_stdout(tmp_path:
     decision = await runtime.solve(
         {
             "session_id": "s1",
-            "mode": "normal",
             "item_id": 1,
             "source_text": "管理，经营",
             "options": {
@@ -144,45 +142,7 @@ def test_upgrade_adds_missing_packaged_sources_without_overwriting_user_rules(tm
     )
 
 
-def test_review_requires_confirmation_before_patch_is_written(tmp_path: Path) -> None:
-    runtime = CoreRuntime()
-    runtime.initialize(
-        {
-            "data_dir": str(tmp_path / "data"),
-            "resource_dir": str(build_resources(tmp_path)),
-            "api_key": None,
-        }
-    )
-    error = {
-        "item_id": 14,
-        "source_text": "管理，经营",
-        "options": {
-            "A": "stimulus",
-            "B": "accomplish",
-            "C": "manage",
-            "D": "finish",
-        },
-        "wrong_target": "D",
-        "correct_target": "C",
-        "wrong_option_text": "finish",
-        "correct_option_text": "manage",
-        "method": "大模型决策",
-    }
-    preview = runtime.preview_review({"session_id": "s1", "errors": [error]})
-    assert preview["candidates"][0]["status"] in {"new", "duplicate"}
-    before = runtime.list_patch_rules()["rules"]
-    assert not any(rule["source_text"] == "管理，经营" and rule["answer_text"] == "manage" for rule in before)
-    runtime.apply_review(
-        {
-            "session_id": "s1",
-            "candidates": [{"action": "add", "item": error}],
-        }
-    )
-    after = runtime.list_patch_rules()["rules"]
-    assert any(rule["source_text"] == "管理，经营" and rule["answer_text"] == "manage" for rule in after)
-
-
-def test_manual_patch_can_be_added_and_replaces_a_source_conflict(tmp_path: Path) -> None:
+def test_manual_patch_requires_confirmation_before_replacing_a_source_conflict(tmp_path: Path) -> None:
     runtime = CoreRuntime()
     runtime.initialize(
         {
@@ -194,9 +154,27 @@ def test_manual_patch_can_be_added_and_replaces_a_source_conflict(tmp_path: Path
     runtime.update_patch_rule(
         {
             "source_text": "管理，经营",
+            "answer_text": "finish",
+            "wrong_answer_text": "manage",
+            "note": "旧规则",
+        }
+    )
+    conflict = runtime.update_patch_rule(
+        {
+            "source_text": "管理，经营",
             "answer_text": "manage",
             "wrong_answer_text": "finish",
             "note": "手动添加",
+        }
+    )
+    assert conflict["status"] == "conflict"
+    runtime.update_patch_rule(
+        {
+            "source_text": "管理，经营",
+            "answer_text": "manage",
+            "wrong_answer_text": "finish",
+            "note": "手动添加",
+            "confirm_conflict": True,
         }
     )
     rules = runtime.list_patch_rules()["rules"]
@@ -204,6 +182,28 @@ def test_manual_patch_can_be_added_and_replaces_a_source_conflict(tmp_path: Path
     assert len(matching) == 1
     assert matching[0]["answer_text"] == "manage"
     assert matching[0]["note"] == "手动添加"
+    assert not any(path.name.startswith("debug_") for path in (tmp_path / "data").iterdir())
+
+
+def test_result_capture_can_skip_an_existing_duplicate_patch(tmp_path: Path) -> None:
+    runtime = CoreRuntime()
+    runtime.initialize(
+        {
+            "data_dir": str(tmp_path / "data"),
+            "resource_dir": str(build_resources(tmp_path)),
+            "api_key": None,
+        }
+    )
+    result = runtime.update_patch_rule(
+        {
+            "source_text": "新闻",
+            "answer_text": "news",
+            "wrong_answer_text": "information",
+            "note": "结果页重复",
+            "skip_duplicate": True,
+        }
+    )
+    assert result["status"] == "duplicate"
 
 
 @pytest.mark.asyncio

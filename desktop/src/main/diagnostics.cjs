@@ -3,6 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const archiver = require("archiver");
+const { sanitizeValue } = require("./crash-store.cjs");
 const { redact } = require("./logger.cjs");
 
 function sanitizeSnapshot(value) {
@@ -19,10 +20,14 @@ async function createDiagnosticZip({ filePath, state, health, logPath, crash, sn
     archive.on("error", reject);
   });
   archive.pipe(output);
-  archive.append(JSON.stringify({ generatedAt: new Date().toISOString(), health, crash }, null, 2), {
+  archive.append(JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    health: sanitizeDiagnosticValue(health),
+    crash: sanitizeDiagnosticValue(crash)
+  }, null, 2), {
     name: "component-status.json"
   });
-  archive.append(JSON.stringify(state, null, 2), { name: "application-state.json" });
+  archive.append(JSON.stringify(sanitizeDiagnosticValue(state), null, 2), { name: "application-state.json" });
   if (snapshot) archive.append(sanitizeSnapshot(snapshot), { name: "webpage-snapshot.html" });
   if (logPath && fs.existsSync(logPath)) {
     archive.append(redact(fs.readFileSync(logPath, "utf8")), { name: "logs/hdu-snap.log" });
@@ -30,6 +35,10 @@ async function createDiagnosticZip({ filePath, state, health, logPath, crash, sn
   await archive.finalize();
   await completed;
   return filePath;
+}
+
+function sanitizeDiagnosticValue(value) {
+  return sanitizeValue(value);
 }
 
 function directorySize(directory) {
@@ -41,4 +50,4 @@ function directorySize(directory) {
   }, 0);
 }
 
-module.exports = { createDiagnosticZip, directorySize, sanitizeSnapshot };
+module.exports = { createDiagnosticZip, directorySize, sanitizeDiagnosticValue, sanitizeSnapshot };

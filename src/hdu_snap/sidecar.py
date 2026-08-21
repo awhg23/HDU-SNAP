@@ -5,19 +5,16 @@ import json
 import logging
 import shutil
 import sys
-import time
-from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from hdu_snap.api.contracts import ReviewResultItemPayload, parse_client_message
 from hdu_snap.application.solver import SolverPipeline
 from hdu_snap.bootstrap import ServiceContainer
 from hdu_snap.config import Settings
-from hdu_snap.domain.models import RuntimeOptions
 from hdu_snap.domain.text import clean_option_text, clean_source_text, normalize_text
 from hdu_snap.infrastructure.models import LLMEngine
 from hdu_snap.infrastructure.stores import PatchRuleStore
+from hdu_snap.protocol import SolveItemPayload, parse_client_message
 
 logger = logging.getLogger("hdu-snap-sidecar")
 
@@ -27,12 +24,12 @@ class CoreNotInitializedError(RuntimeError):
 
 
 class CoreRuntime:
-    """Long-lived solver process used by the desktop application over JSON Lines."""
+    """Long-lived normal-mode solver used by the desktop app over JSON Lines."""
 
     def __init__(self) -> None:
         self.settings: Settings | None = None
         self.container: ServiceContainer | None = None
-        self.pipelines: dict[str, SolverPipeline] = {}
+        self.pipeline: SolverPipeline | None = None
         self.packaged_patch_count = 0
 
     def initialize(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -47,42 +44,34 @@ class CoreRuntime:
         patch_existed = patch_path.exists()
         if packaged_rules and not patch_existed:
             shutil.copy2(packaged_patch_path, patch_path)
+
         settings = Settings(
-            _env_file=None,
             data_dir=data_dir,
             dictionary_path=resource_dir / "CET" / "Data.lexicon.cache.json",
             patch_rules_path=patch_path,
             deepseek_api_key=str(params.get("api_key") or "").strip() or None,
-            mode="normal",
-            answer_count=100,
-            auto_open_site=False,
         )
-        container = ServiceContainer.create(settings, RuntimeOptions(mode="normal", answer_count=100))
+        container = ServiceContainer.create(settings)
         if packaged_rules and patch_existed:
             container.patch_store.seed_missing_sources(packaged_rules)
         self.settings = settings
         self.container = container
+        self.pipeline = SolverPipeline(
+            dictionary_engine=container.dictionary_engine,
+            llm_engine=container.llm_engine,
+            patch_store=container.patch_store,
+            validation_stream=sys.stderr,
+        )
         self.packaged_patch_count = len(packaged_rules)
-        self.pipelines = {
-            mode: SolverPipeline(
-                dictionary_engine=container.dictionary_engine,
-                llm_engine=container.llm_engine,
-                patch_store=container.patch_store,
-                debug_store=container.debug_store,
-                runtime=RuntimeOptions(mode=mode, answer_count=100),
-                validation_stream=sys.stderr,
-            )
-            for mode in ("normal", "debug")
-        }
         return self.health()
 
     def require_initialized(self) -> ServiceContainer:
-        if self.container is None or self.settings is None:
+        if self.container is None or self.settings is None or self.pipeline is None:
             raise CoreNotInitializedError("core_not_initialized")
         return self.container
 
     def health(self) -> dict[str, Any]:
-        container = self.require_initialized()
+        self.require_initialized()
         settings = self.settings
         assert settings is not None
         checks = {
@@ -100,7 +89,7 @@ class CoreRuntime:
 
     async def solve(self, params: dict[str, Any]) -> dict[str, Any]:
         self.require_initialized()
-        payload = parse_client_message(
+        parsed = parse_client_message(
             {
                 "type": "solve_item",
                 "session_id": params.get("session_id"),
@@ -109,153 +98,58 @@ class CoreRuntime:
                 "options": params.get("options"),
             }
         )
-        mode = "debug" if params.get("mode") == "debug" else "normal"
-        decision = await self.pipelines[mode].solve(
-            item_id=payload.item_id,
-            source_text=payload.source_text,
-            options=payload.options,
-            session_id=payload.session_id,
+        if not isinstance(parsed, SolveItemPayload):
+            raise ValueError("solve payload is invalid")
+        assert self.pipeline is not None
+        decision = await self.pipeline.solve(
+            item_id=parsed.item_id,
+            source_text=parsed.source_text,
+            options=parsed.options,
+            session_id=parsed.session_id,
         )
         return {
             "type": "decision",
-            "session_id": payload.session_id,
-            "item_id": payload.item_id,
+            "session_id": parsed.session_id,
+            "item_id": parsed.item_id,
             "target": decision.target,
             "method": decision.method,
             "confidence": decision.confidence,
             "detail": decision.detail,
         }
 
-    @staticmethod
-    def _candidate_id(item: ReviewResultItemPayload) -> str:
-        raw = "\x00".join(
-            [
-                normalize_text(clean_source_text(item.source_text)),
-                normalize_text(clean_option_text(item.correct_option_text)),
-                str(item.item_id),
-            ]
-        )
-        return sha256(raw.encode("utf-8")).hexdigest()[:20]
-
-    def preview_review(self, params: dict[str, Any]) -> dict[str, Any]:
-        container = self.require_initialized()
-        payload = parse_client_message(
-            {
-                "type": "review_results",
-                "session_id": params.get("session_id"),
-                "errors": params.get("errors", []),
-            }
-        )
-        rules = container.patch_store.get_rules()
-        candidates = []
-        for item in payload.errors:
-            source_key = normalize_text(clean_source_text(item.source_text))
-            answer_key = normalize_text(clean_option_text(item.correct_option_text))
-            same_source = [
-                rule
-                for rule in rules
-                if normalize_text(clean_source_text(rule["source_text"])) == source_key
-            ]
-            if any(
-                normalize_text(clean_option_text(rule["answer_text"])) == answer_key
-                for rule in same_source
-            ):
-                status = "duplicate"
-            elif same_source:
-                status = "conflict"
-            else:
-                status = "new"
-            candidates.append(
-                {
-                    "id": self._candidate_id(item),
-                    "status": status,
-                    "item": item.model_dump(),
-                    "existing_rules": same_source,
-                    "selected": status == "new",
-                }
-            )
-        return {
-            "session_id": payload.session_id,
-            "candidates": candidates,
-            "counts": {
-                "discovered": len(candidates),
-                "new": sum(item["status"] == "new" for item in candidates),
-                "duplicate": sum(item["status"] == "duplicate" for item in candidates),
-                "conflict": sum(item["status"] == "conflict" for item in candidates),
-            },
-        }
-
-    def apply_review(self, params: dict[str, Any]) -> dict[str, Any]:
-        container = self.require_initialized()
-        selected = params.get("candidates")
-        if not isinstance(selected, list):
-            raise ValueError("candidates_must_be_an_array")
-        applied = 0
-        debug_records = []
-        for raw in selected:
-            if not isinstance(raw, dict) or raw.get("action") not in {"add", "replace"}:
-                continue
-            item = ReviewResultItemPayload.model_validate(raw.get("item"))
-            note = (
-                f"Mac App 结果页确认补丁: 第{item.item_id}题, "
-                f"错选={item.wrong_target}->{item.wrong_option_text}, "
-                f"正选={item.correct_target}->{item.correct_option_text}"
-            )
-            if raw["action"] == "replace":
-                container.patch_store.replace_source_rule(
-                    item.source_text,
-                    item.correct_option_text,
-                    item.wrong_option_text,
-                    note,
-                )
-            else:
-                container.patch_store.upsert_rule(
-                    item.source_text,
-                    item.correct_option_text,
-                    item.wrong_option_text,
-                    note,
-                )
-            debug_records.append(
-                {
-                    "timestamp": int(time.time()),
-                    "session_id": params.get("session_id"),
-                    "item_id": item.item_id,
-                    "source_text": item.source_text,
-                    "options": item.options,
-                    "target": item.wrong_target,
-                    "method": item.method or "结果页采集",
-                    "wrong_target": item.wrong_target,
-                    "wrong_option_text": item.wrong_option_text,
-                    "correct_target": item.correct_target,
-                    "correct_option_text": item.correct_option_text,
-                }
-            )
-            applied += 1
-        if debug_records:
-            container.debug_store.append_errors(debug_records)
-        return {"status": "ok", "applied": applied}
-
     def list_patch_rules(self) -> dict[str, Any]:
-        container = self.require_initialized()
-        return {"rules": container.patch_store.get_rules()}
+        return {"rules": self.require_initialized().patch_store.get_rules()}
 
     def update_patch_rule(self, params: dict[str, Any]) -> dict[str, Any]:
-        container = self.require_initialized()
         source_text = clean_source_text(str(params.get("source_text", "")))
         answer_text = clean_option_text(str(params.get("answer_text", "")))
         if not source_text or not answer_text:
             raise ValueError("source_and_answer_are_required")
-        container.patch_store.replace_source_rule(
+        source_key = normalize_text(source_text)
+        answer_key = normalize_text(answer_text)
+        existing_rules = [
+            rule
+            for rule in self.require_initialized().patch_store.get_rules()
+            if normalize_text(clean_source_text(rule["source_text"])) == source_key
+        ]
+        duplicate = any(
+            normalize_text(clean_option_text(rule["answer_text"])) == answer_key
+            for rule in existing_rules
+        )
+        if duplicate and params.get("skip_duplicate") is True:
+            return {"status": "duplicate", "existing_rules": existing_rules}
+        if existing_rules and not duplicate and params.get("confirm_conflict") is not True:
+            return {"status": "conflict", "existing_rules": existing_rules}
+        self.require_initialized().patch_store.replace_source_rule(
             source_text=source_text,
             answer_text=answer_text,
             wrong_answer_text=clean_option_text(str(params.get("wrong_answer_text", ""))),
             note=str(params.get("note", "")).strip(),
         )
-        return {"status": "ok"}
+        return {"status": "updated" if existing_rules else "added"}
 
     def delete_patch_rule(self, params: dict[str, Any]) -> dict[str, Any]:
-        container = self.require_initialized()
-        deleted = container.patch_store.delete_rule(
+        deleted = self.require_initialized().patch_store.delete_rule(
             str(params.get("source_text", "")),
             str(params.get("answer_text", "")),
         )
@@ -265,9 +159,9 @@ class CoreRuntime:
         key = str(params.get("api_key") or "").strip()
         if not key:
             raise ValueError("api_key_is_required")
+        self.require_initialized()
         settings = self.settings
-        if settings is None:
-            raise CoreNotInitializedError("core_not_initialized")
+        assert settings is not None and self.pipeline is not None
         engine = LLMEngine(
             api_key=key,
             base_url=settings.llm_base_url,
@@ -278,7 +172,7 @@ class CoreRuntime:
         decision = await engine.choose(
             "管理，经营",
             {"A": "manage", "B": "finish", "C": "stimulus", "D": "accomplish"},
-            self.pipelines["normal"].stats,
+            self.pipeline.stats,
         )
         if decision.method != "大模型决策":
             raise RuntimeError("api_key_validation_failed")
@@ -292,10 +186,6 @@ async def dispatch(runtime: CoreRuntime, method: str, params: dict[str, Any]) ->
         return runtime.health()
     if method == "solve":
         return await runtime.solve(params)
-    if method == "review_preview":
-        return runtime.preview_review(params)
-    if method == "review_apply":
-        return runtime.apply_review(params)
     if method == "patch_list":
         return runtime.list_patch_rules()
     if method == "patch_update":

@@ -9,7 +9,7 @@ from hdu_snap.config import PROJECT_ROOT
 from hdu_snap.domain.models import RunStats
 from hdu_snap.infrastructure.dictionary import DictionaryEngine
 from hdu_snap.infrastructure.models import LLMEngine
-from hdu_snap.infrastructure.stores import DebugArtifactStore, PatchRuleStore, migrate_legacy_debug_files
+from hdu_snap.infrastructure.stores import PatchRuleStore
 
 
 def write_dictionary(path) -> None:
@@ -47,18 +47,6 @@ def test_release_patch_baseline_has_no_source_conflicts() -> None:
     normalized_sources = [rule["source_text"].strip().casefold() for rule in rules]
     assert len(rules) >= 60
     assert len(normalized_sources) == len(set(normalized_sources))
-
-
-def test_debug_store_and_legacy_migration(tmp_path) -> None:
-    legacy = tmp_path / "debug_recent_500.json"
-    legacy.write_text("[]", encoding="utf-8")
-    migrate_legacy_debug_files(tmp_path)
-    assert not legacy.exists()
-    store = DebugArtifactStore(tmp_path / "debug_recent_10000.json", tmp_path / "debug_error_1000.json")
-    store.append_recent({"item_id": 1})
-    store.append_errors([{"item_id": 1}])
-    assert len(store.recent_questions) == 1
-    assert len(store.error_questions) == 1
 
 
 @pytest.mark.asyncio

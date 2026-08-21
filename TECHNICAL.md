@@ -1,140 +1,157 @@
 # HDU-SNAP 技术文档
 
-## 架构
+本文描述 v2.4.0 候选代码的实际架构。第一阶段的 Chrome 插件、FastAPI/HTTP/WebSocket、CLI、调试报表和旧启动脚本已经删除；跨平台答题核心与版本化协议模型继续保留。
 
-第二阶段 macOS App：
+## 1. 总体架构
 
 ```text
 Electron 主进程
-├── 本地应用 UI（严格 CSP、sandbox、contextIsolation）
-├── WebContentsView（单一持久 persist: 分区）
-│   └── 站点适配器预加载（DOM 识别、选择答案、翻页、提交观察）
-├── 批次状态机、记录、迁移、诊断与版本检查
-├── safeStorage / macOS Keychain（仅 DeepSeek Key）
-└── JSON Lines stdio
-    └── PyInstaller Python sidecar
-        └── 现有 Solver、词典、DeepSeek 与补丁存储
+├── 本地 renderer（严格 CSP、sandbox、contextIsolation）
+├── WebContentsView（单一 persist: 网站分区）
+│   └── 隔离站点 preload（DOM 识别、选择答案、提交观察）
+├── 批次状态机、记录、V3 迁移、诊断、崩溃上下文与版本检查
+├── safeStorage / macOS Keychain（DeepSeek Key）
+└── JSON Lines stdin/stdout
+    └── PyInstaller Apple Silicon sidecar
+        ├── SolverPipeline
+        ├── 词典与补丁存储
+        └── DeepSeek / 确定性兜底
 ```
 
-Mac App 主路径不启动 FastAPI，也不开放本机端口。`src/hdu_snap/sidecar.py` 复用现有应用层和基础设施，通过逐行 JSON 请求响应与 Electron 通信；协议输出固定走 stdout，诊断日志固定走 stderr。网页永远无法访问 Key 或 sidecar。
+Mac App 主路径不启动本地服务，也不监听端口。远程网页不能访问 Node、Electron API、Key 或 sidecar。Electron 与 Python 仅以逐行 JSON 通信；stdout 专用于协议，日志写入 stderr。
 
-Electron 主进程通过单实例锁避免两个进程同时操作同一数据目录。`CoreSupervisor` 串行化 sidecar 初始化，所有业务请求先经过就绪门控；若运行中收到 `CoreNotInitializedError` 或发现 sidecar 意外退出，只重新初始化并重试当前请求一次。题目层的三次重试只统计恢复后仍然失败的请求。新增的 IPC 关联日志只记录 sidecar PID、请求编号、方法和错误类型，不记录请求参数或 Key；原有节点校验日志仍按产品诊断语义保留题目和选项。
+## 2. Python 核心
 
-远程网页使用 `nodeIntegration=false`、`contextIsolation=true`、`sandbox=true` 和 `webSecurity=true`。任意 HTTPS 可浏览，但自动化只对 `skl.hduhelp.com` 与 `skl.hdu.edu.cn` 启用；HTTP 需要逐次确认，证书错误直接拒绝。App 只使用一个持久化 session partition，不解析账号身份；V1.0 升级时沿用一个旧分区以保留登录状态。
-
-学习页的 412px `WebContentsView` 始终在侧栏以外的主内容区水平居中；本地答题详情面板独立贴近窗口右侧，宽度在 214–280px 范围内自适应，窗口最小宽度为 1100px，面板不得覆盖移动画布。主进程在内存中维护当前批次的逐题展示数据，renderer 将最新一题置顶并提供独立滚动；该数组不进入 `DesktopStore`、批次导出或诊断状态，新建批次和退出进程后清空。
-
-本地 renderer 使用仓库级设计规范 `design-system/hdu-snap/MASTER.md`：颜色限定为奶油纸、陶土、芥末黄和深橄榄，图标使用内嵌 SVG，字体只使用 macOS 系统字体栈。`desktop/src/renderer/assets/study-companion.png` 是首次引导和首页共用的本地插画，`desktop/scripts/build.mjs` 会把它复制到 `desktop/dist/assets/`。CSP 继续禁止 renderer 网络请求，因此视觉资源不会绕过本地打包边界。
-
-原生网页视图的可见性由 renderer 当前页面单向驱动：`BrowserController.open()` 只创建隐藏视图并等待学习首页加载，不自行显示；任务创建完成后主进程返回包含待就绪批次的最新 `publicState()`，renderer 更新状态后再进入学习页。renderer 每次渲染都会显式发送显示或隐藏意图，不缓存上一次意图，避免主进程创建视图后出现状态竞态、开始按钮缺失或网页覆盖本地设置页。
-
-结果页纠错使用显式单次请求链路：renderer 的“记录错题”触发站点 preload 扫描当前 DOM；preload 只返回当前题目、A–D 选项、页面标示的正确选项和可选错选项；主进程重新校验支持域名、结果页状态、文本长度、四个选项和 A–D 目标，再调用 sidecar `patch_update`。请求设有 5 秒超时且同一时间只允许一个，网页不能直接写补丁文件。该链路不自动翻页、不写调试记录，也不恢复自动复盘。
-
-第一阶段兼容架构（Mac App 真实验收前保留）：
+依赖方向固定为：
 
 ```text
-main.py / hdu-snap CLI
-        │
-        ▼
-src/hdu_snap/
-├── config.py              # Pydantic Settings、路径和客户端安全配置
-├── domain/                # 纯领域类型与文本处理
-├── application/           # Solver Pipeline 与调试反馈
-├── infrastructure/        # SQLite、补丁、日志和 LLM
-├── api/                   # FastAPI、HTTP 与 WebSocket 协议
-└── reporting/             # 调试报表
-
-extension/
-├── src/                   # 后台、内容脚本、设置页与共享源码
-├── dist/                  # ESBuild 生成并提交的 Chrome 可加载产物
-├── manifest.json
-└── options.html
+sidecar → bootstrap → application → domain
+                         ↓
+                  infrastructure
 ```
 
-Python 模块导入不会创建文件或发起网络请求。服务资源由 FastAPI lifespan 显式初始化，并可在测试中注入替代实现。
+- `hdu_snap.protocol`：保留 `solve_item`、`batch_complete`、`review_results`、`decision`、`error`、`batch_summary`、`review_results_ack` 的字段和解析语义，供未来平台复用。桌面主路径只使用 `solve_item`。
+- `hdu_snap.config.Settings`：显式接收 sidecar 注入的资源、数据和 Key；不读取 `.env` 或进程环境变量。
+- `SolverPipeline`：只负责单题正常决策，不创建调试文件、不保存逐题内容。
+- `ServiceContainer`：在 sidecar `initialize` 阶段显式创建词典、补丁和 LLM 适配器；导入包无文件、模型或网络副作用。
+- `hdu_snap.sidecar`：只暴露 `initialize`、`health`、`solve`、补丁增删改查、`check_api_key` 和 `shutdown`。
 
-## 答题流程
+决策顺序固定为：
 
-Mac App 的运行控制由 `desktop/src/shared/batch-machine.cjs` 管理。运行中锁定导航和用户网页点击；睡眠会自动暂停；同题失败三次进入错误暂停。达到目标题量后，站点适配器只选择答案并发送 `final-pending`，随后解锁网页供用户亲自提交。只有检测到用户提交点击后才开始 15 秒结果页识别，超时允许人工二次确认。
+1. 补丁规则；
+2. 本地词典；
+3. DeepSeek；
+4. 固定选择 A 的确定性兜底。
 
-纠错补丁可以在设置页手动添加，至少填写题目和正确答案；同题冲突需确认后替换。未保存表单只在 renderer 内存中保留，跨页面渲染不丢失，保存成功后清空且不进入持久状态。补丁存储继续按写入顺序返回，renderer 使用副本倒序渲染，使最新规则位于列表顶部而不改写补丁文件。用户也可以在结果页手动记录当前错题。直接导入接受 JSON/JSONC，旧项目迁移读取根目录 `patch_rules.jsonc`，所有入口最终调用同一个 sidecar 补丁存储。
+DeepSeek V4 单字母请求关闭思考模式，并校验最终内容必须是 A–D。密钥缺失或请求失败时必须标记“确定性兜底”，不能伪装成大模型结果。
 
-Mac App 只提供正常答题，不自动遍历结果页、不自动复盘，也不持久化逐题调试内容。结果页仅支持由用户逐题触发的当前错题扫描。第一阶段 CLI/插件仍保留原有调试协议；共享 sidecar 的兼容复盘方法不作为桌面 UI 功能暴露。
+## 3. Electron 安全与网页容器
 
-仓库根目录 `patch_rules.jsonc` 同时是 Mac App 的发布补丁基线。资源准备脚本将其原样复制到 `Contents/Resources/prepared/core-resources/`；sidecar 在首次启动时原样复制到应用数据目录，升级时按规范化题目只合并缺失来源，已有用户规则优先。核心健康检查要求内置补丁非空，Electron 自检同时检查资源文件存在。Forge 完成后 `verify-packaged-resources.mjs` 对源文件和 `.app` 内文件做逐字节校验。
+- 本地 UI 和远程网页启用 `sandbox`、`contextIsolation`、`webSecurity`，禁用 Node 集成。
+- 任意 HTTPS 可浏览；HTTP 每次确认；证书错误直接拒绝。
+- 自动化只对 `skl.hdu.edu.cn` 和 `skl.hduhelp.com` 启用。
+- 网站数据只存于一个持久分区；不解析或保存姓名、学号等身份。
+- 网页 preload 只发送结构化题目、状态和单题错题扫描结果；主进程重新校验所有输入。
+- 页面加载失败、网页进程崩溃或不可执行时，主进程记录脱敏上下文并自动暂停运行中的批次。
+- 原生视图在 `BrowserWindow` 的 `close` 阶段幂等销毁，不能在 `closed` 后访问已销毁对象。
 
-旧插件流程：
+答题页使用 412px 逻辑画布、移动 UA，以及 DevTools Protocol 的平台和触摸覆盖。Electron 43 在 `WebContentsView` 上调用 `enableDeviceEmulation()` 会导致原生崩溃，因此禁止重新启用该 API。
 
-1. 用户手动登录并进入题目页。
-2. 内容脚本等待后端安全配置，然后监听题目 DOM。
-3. 后台脚本通过 WebSocket 将题目发送到本地后端。
-4. Solver 按 `补丁 -> 字典 -> DeepSeek -> 确定性兜底` 决策。
-5. 内容脚本点击选项并翻页。
-6. 达到配置数量后挂起，不点击提交。
-7. 旧版调试模式下，结果页错题会回传并写入补丁及调试记录；此能力不属于 Mac App。
+## 4. 批次与答题流程
 
-## API 协议
+批次状态由 `desktop/src/shared/batch-machine.cjs` 管理：待就绪、可开始、运行中、暂停、错误暂停、最终待提交、正在确认提交、完成、中止、异常中止和未确认提交。
 
-- `GET /health`：兼容健康检查和运行状态。
-- `GET /api/v1/client-config`：插件可见的无敏感配置，当前 `schema_version=1`、`protocol_version=1`。
-- `WS /ws/solve`：答题和复盘协议。
+运行中锁定本地导航和用户网页点击。最小化时继续；睡眠、网页崩溃、加载失败或页面不可执行时暂停。每题自动化最多重试三次，继续或重试前必须重新读取当前 DOM。
 
-客户端消息：`solve_item`、`batch_complete`、`review_results`。
+达到目标后只选择最后一题答案并挂起，绝不触发提交按钮。用户手动提交后，App 最多等待 15 秒识别结果页；超时只允许用户二次确认本地状态。
 
-服务端消息：`decision`、`error`、`batch_summary`、`review_results_ack`。
+右侧答题详情仅保存在主进程内存，退出或新建批次即清空，不进入记录、导出或诊断状态。
 
-协议字段保持与重构前兼容。插件设置页仅保存 loopback 后端地址，不保存 API Key。
+## 5. 补丁与结果页错题
 
-## 配置
+仓库根目录 `patch_rules.jsonc` 是发布基线。构建时原样复制到 App 资源；首次启动完整播种，升级仅按规范化题目补入缺失项，用户已有同题规则优先。打包结束后必须逐字节比较源文件和 `.app` 内文件。
 
-配置优先级：
+补丁入口包括：
+
+- 设置页手动添加、编辑和删除；
+- JSON/JSONC 导入与导出；
+- 从旧项目目录幂等迁入 `patch_rules.jsonc`；
+- 结果页由用户翻到当前错题后点击一次“记录错题”。
+
+结果页扫描只读取当前题、A–D 选项、网页标示的正确答案和可选错选；不自动翻页、不批量采集、不生成调试记录。重复规则提示已存在；冲突规则必须明确确认后覆盖。
+
+## 6. 数据结构与记录
+
+数据位于 `~/Library/Application Support/HDU-SNAP/`。V3 升级会先创建备份并只保留最近三份，随后删除旧的自定义版本清单 URL；更新频道和上次检查时间继续保留。旧 App 遇到更高数据版本时必须阻止运行。
+
+记录只保存批次摘要，不保存账号身份、运行模式或逐题内容。全局最多 1000 批，超限删除最旧记录。
+
+记录查询支持：
+
+- 状态；
+- 起始日期；
+- 结束日期，包含该日期整天；
+- 每页固定 50 条；
+- 删除最后一页数据后自动收敛到仍有效的页码。
+
+CSV/JSON 导出忽略当前页码，覆盖当前筛选条件下的全部记录。
+
+## 7. 诊断与崩溃上下文
+
+日志只保存在本地，并按 30 天或 100 MB 清理。主进程异常、网页进程崩溃和加载失败保存为单份 `last-crash.json`，内容仅包含时间、类型、错误名、脱敏消息/堆栈、退出原因和不含 query/hash 的页面地址。
+
+诊断 ZIP 可包含日志、组件状态、崩溃上下文和用户主动提供的网页上下文，但必须排除密码、Cookie、会话令牌、DeepSeek Key 和钥匙串内容。诊断页必须显示明确的隐私确认复选框，未勾选时导出按钮不可用。
+
+## 8. 版本检查
+
+App 固定读取：
 
 ```text
-CLI 参数 > 进程环境变量 > 根目录 .env > 默认值/交互输入
+https://raw.githubusercontent.com/awhg23/HDU-SNAP-update-manifest/main/manifest.json
 ```
 
-所有环境变量由 `Settings` 加载和校验。完整列表见 `.env.example`，主要分为：
+清单 Schema：
 
-- 运行模式和答题数量
-- 服务 host、port 与日志级别
-- 数据、词库和补丁路径
-- LLM 地址、模型、超时与重试
-- 插件延迟、重连、TTL 和移动端模拟配置
+```json
+{
+  "schema_version": 1,
+  "releases": [
+    {
+      "version": "2.4.0",
+      "channel": "stable",
+      "published_at": "2026-08-22T00:00:00Z",
+      "summary": "版本说明摘要",
+      "sha256": "64 位小写十六进制 SHA-256",
+      "release_url": "https://github.com/awhg23/HDU-SNAP/releases/tag/v2.4.0"
+    }
+  ]
+}
+```
 
-默认数据位置保持兼容：
+解析器严格校验 Schema、频道、SemVer、时间、摘要、哈希和 Release URL，并按 SemVer 排序。状态区分“有新版本”“已是最新”和“没有适用版本”。自动检查每 24 小时最多一次，手动检查不限；App 只允许打开指定仓库的 `/releases/tag/<version>` 路径，不保存 Token、不下载或替换自身。
 
-- `runtime/hdu_snap.db`
-- `runtime/debug_recent_10000.json`
-- `runtime/debug_error_1000.json`
-- `patch_rules.jsonc`
-- `CET/Data.lexicon.cache.json`
-
-`HDU_SNAP_DATA_DIR` 只改变数据库、调试日志和报表目录，不自动迁移旧数据。
-
-## 开发与验证
+## 9. 构建、测试与发布
 
 ```bash
-python -m pip install -e ".[dev]"
-python -m pytest
-cd extension
+.venv/bin/pip install -e ".[full,dev]"
+.venv/bin/python -m pytest
+
+cd desktop
 npm ci
 npm test
 npm run build
-
-cd ../desktop
-npm ci
-npm test
-npm run build
+npm run test:electron-exit
 ```
 
-真实站点的日常源码验收从仓库根目录执行：
+发布候选 DMG：
 
 ```bash
-bash scripts/run_macos_dev.sh
+cd desktop
+npm run make:dmg
 ```
 
-该模式使用默认应用数据目录，与安装版共享网页登录会话和记录，因此必须先完全退出已安装版。`bash scripts/run_macos_dev.sh --isolated` 改用 `runtime/desktop-dev/`，适合破坏性或首次引导测试。单实例锁按数据目录生效；日常修改不生成 DMG，只有发布和安装验收才执行下面的打包流程。
+打包要求 Apple Silicon、macOS 13+、Xcode、Node 和 Python 3.10+。PyInstaller sidecar 不含 FastAPI、Uvicorn、Torch、Sentence Transformers 或 M3E 模型。`prepared` 资源只作为 `extraResource` 复制一次，不得同时进入 `app.asar`。
 
-打包要求 Xcode 和 Apple Silicon Python 3.10+。`scripts/build_macos_sidecar.sh` 生成不含 Torch、Sentence Transformers 和本地模型的冻结核心，`desktop/scripts/prepare-resources.mjs` 只准备词典与补丁基线，Electron Forge 生成未签名 App/DMG；构建末尾会校验安装包补丁与仓库基线一致。`prepared` 资源通过 `extraResource` 只复制一次，不再重复进入 `app.asar`。固定 Electron arm64 ZIP 的官方 SHA-256 随 Forge 配置提供，使已有本地缓存可离线校验，不再为校验文件强制联网。技术选型记录见 `docs/architecture/ADR-001-macos-app-stack.md`。
+CI 在 Ubuntu Python 3.10/3.12、macOS Python 3.10 和 Windows Python 3.10 上运行核心测试；桌面任务运行测试、构建和 `dist` 同步检查，macOS 额外执行 Electron 退出冒烟。CI 不访问真实账号、不调用 DeepSeek、不下载模型。
 
-CI 在 Ubuntu Python 3.10/3.12、macOS 3.10 和 Windows 3.10 上运行轻量测试；插件任务验证测试、构建以及 `dist/` 是否与源码同步。CI 不请求 DeepSeek，也不访问真实题目站点。
+正式发布必须从合并后的 `main` 同一提交构建并验收同一份 DMG，然后创建 Tag/私有 Release，最后把实际时间和 SHA-256 写入公开清单。v2.3.0 Release 必须保留。

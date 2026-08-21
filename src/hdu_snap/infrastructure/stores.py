@@ -3,10 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-import shutil
-from collections import deque
 from pathlib import Path
-from typing import Any
 
 from hdu_snap.domain.text import clean_option_text, clean_source_text, normalize_text
 
@@ -21,57 +18,10 @@ DEFAULT_PATCH_RULES = [
     {"source_text": "抑制", "answer_text": "check", "wrong_answer_text": "block", "note": "避免字典把“抑制”误命中到 block"},
 ]
 
-
-def migrate_legacy_debug_files(data_dir: Path) -> None:
-    mappings = (
-        (data_dir / "debug_recent_500.json", data_dir / "debug_recent_10000.json"),
-        (data_dir / "debug_error_100.json", data_dir / "debug_error_1000.json"),
-    )
-    for old_path, new_path in mappings:
-        if not old_path.exists() or new_path.exists():
-            continue
-        new_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(old_path), str(new_path))
-        logger.info("migrated legacy debug file: %s -> %s", old_path, new_path)
-
-
-class DebugArtifactStore:
-    def __init__(self, recent_path: Path, error_path: Path) -> None:
-        self.recent_path = recent_path
-        self.error_path = error_path
-        self.recent_path.parent.mkdir(parents=True, exist_ok=True)
-        self.error_path.parent.mkdir(parents=True, exist_ok=True)
-        self.recent_questions: deque[dict[str, Any]] = deque(self._load_file(self.recent_path), maxlen=10000)
-        self.error_questions: deque[dict[str, Any]] = deque(self._load_file(self.error_path), maxlen=1000)
-
-    @staticmethod
-    def _load_file(path: Path) -> list[dict[str, Any]]:
-        if not path.exists():
-            return []
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            return payload if isinstance(payload, list) else []
-        except Exception as exc:
-            logger.warning("failed to load debug artifact file %s: %s", path, exc)
-            return []
-
-    def append_recent(self, record: dict[str, Any]) -> None:
-        self.recent_questions.append(record)
-        self._write_file(self.recent_path, list(self.recent_questions))
-
-    def append_errors(self, records: list[dict[str, Any]]) -> None:
-        self.error_questions.extend(records)
-        self._write_file(self.error_path, list(self.error_questions))
-
-    @staticmethod
-    def _write_file(path: Path, payload: list[dict[str, Any]]) -> None:
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
 class PatchRuleStore:
     TEMPLATE_PREFIX = """// HDU-SNAP 补丁区
 // 这个文件用于存放已确认错题的补丁规则。
-// 调试模式会把结果页采集到的正确答案补到这里。
+// 桌面 App 可通过手动添加、导入或结果页“记录错题”维护规则。
 // 模板：
 // {
 //   "source_text": "解决",

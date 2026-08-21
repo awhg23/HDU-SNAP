@@ -1,161 +1,112 @@
 # HDU-SNAP
 
-HDU-SNAP 是一个本地运行的英语单词题自动化工具。macOS App 2.3.0 已将 Python 答题核心和网页自动化整合为自包含的 Apple Silicon 应用并正式发布；第一阶段的 Python 后端与 Chrome 插件暂时保留，用于行为对照和回退。
+HDU-SNAP 是一款本地运行的 macOS 英语单词答题工具。它把内嵌学习网页、答题核心、补丁维护、记录和诊断整合在一个自包含 App 中；最终提交始终由用户亲自完成。
 
-开发者可先阅读 [开发文件指南](docs/DEVELOPMENT_FILE_GUIDE.md)，了解每个文件属于命令行版、Chrome 插件、共享核心还是桌面版，以及是否可以删除或重新生成。
+当前正式版为 **v2.3.0**。仓库正在完成 **v2.4.0 发布候选版**：补齐记录分页与日期筛选、诊断隐私确认和崩溃上下文、固定公开版本清单，并正式删除第一阶段 Chrome 插件、本地 HTTP/WebSocket 服务和 CLI。v2.4.0 在全部自动化与人工验收完成前不会发布。
 
-## 正式版本下载
+开发者可先阅读 [开发文件指南](docs/DEVELOPMENT_FILE_GUIDE.md)，了解现存文件的职责和必备性。完整需求见 [PRD-001](docs/prd/PRD-001.md)。
 
-当前正式版为 **HDU-SNAP v2.3.0**，覆盖安装和真实站点答题均已完成验收。
+## 正式版下载
 
-- Release 页面：[HDU-SNAP v2.3.0](https://github.com/awhg23/HDU-SNAP/releases/tag/v2.3.0)
-- 安装包：[HDU-SNAP.dmg](https://github.com/awhg23/HDU-SNAP/releases/download/v2.3.0/HDU-SNAP.dmg)
-- 系统要求：Apple Silicon Mac、macOS 13 或更高版本
-- 安装包状态：未签名、未公证
+- Release：[HDU-SNAP v2.3.0](https://github.com/awhg23/HDU-SNAP/releases/tag/v2.3.0)
+- DMG：[HDU-SNAP.dmg](https://github.com/awhg23/HDU-SNAP/releases/download/v2.3.0/HDU-SNAP.dmg)
+- 系统：Apple Silicon、macOS 13+
+- 交付方式：未签名、未公证 DMG
 - 文件大小：`139,453,489` 字节
 - SHA-256：`074dcfec1d6774ae6100a3cbdfad02f6075d25f779a80c6ac6c5649f420857e0`
 
-仓库和 Release 均为私有内容，下载前需登录拥有本仓库访问权限的 GitHub 账号。首次打开未签名 App 时，请按照 [macOS 教程](./MACOS_GUIDE.md) 中的步骤手动允许运行。
+源码和 DMG 位于私有仓库，下载者需要相应 GitHub 访问权限。首次运行方式见 [macOS 使用指南](MACOS_GUIDE.md)。
 
-后端按照以下顺序选择答案：
+## 产品能力
 
-1. 补丁规则
-2. 本地词典
-3. DeepSeek
-4. 确定性兜底
+- App 内手动登录并保留一份跨重启的网站会话。
+- 默认 100 题，快捷题量为 90、95、100，也可输入任意正整数。
+- 决策顺序固定为“补丁规则 → 词典 → DeepSeek → 确定性兜底”。
+- 支持暂停、继续、停止、同题三次重试和异常自动暂停。
+- 最后一题只选择答案，绝不自动点击提交。
+- 结果页可由用户逐题点击“记录错题”，也可手动添加或导入 JSON/JSONC 补丁。
+- 记录支持状态、起止日期筛选和每页 50 条分页；CSV/JSON 导出覆盖当前筛选的全部结果。
+- 诊断包只有在用户勾选隐私确认后才能导出，且排除密码、Cookie、会话令牌和 DeepSeek Key。
+- 版本检查读取固定的公开清单，只展示版本和私有 Release 链接，不保存 GitHub Token，也不自动下载或安装。
 
-无论使用 Mac App 还是旧插件，最后一题都只会选择答案，**不会自动提交**。
+App 不识别或保存姓名学号，不保存密码，不提供账号隔离、调试复盘、向量模型或逐题持久化。
 
-## macOS App（2.3.0 正式版）
+## 安装与使用
 
-要求 Apple Silicon 与 macOS 13+。运行时不依赖外部 Python、Node、Chrome 或浏览器插件，DeepSeek Key 仅保存到 macOS 钥匙串。
+1. 打开 DMG，将 HDU-SNAP 拖入“应用程序”。
+2. 在 Finder 中右键 App 并选择“打开”；若仍被阻止，在“系统设置 → 隐私与安全性”中允许。
+3. 完成首次自检。DeepSeek Key 可跳过；保存时由 macOS 钥匙串保护。
+4. 输入题量并进入学习站点，手动登录和导航到题目页。
+5. 识别成功后点击“开始答题”。达到目标后亲自检查并提交。
 
-日常修复验证不需要重新生成或安装 DMG。先完全退出 `/Applications/HDU-SNAP.app`，再从源码启动；开发版直接使用现有的 `~/Library/Application Support/HDU-SNAP/`，因此网页登录会话和记录可以继续使用：
+用户数据位于：
+
+```text
+~/Library/Application Support/HDU-SNAP/
+```
+
+升级前会自动保留最近三份数据结构备份。内置补丁首次完整播种，升级只补入缺失题目，不覆盖用户已有修正。
+
+## 源码开发
+
+要求 Xcode、Apple Silicon Mac、Node.js 和 Python 3.10+。
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/pip install -e ".[full,dev]"
+cd desktop
+npm ci
+```
+
+日常桌面调试无需安装 DMG。先完全退出已安装版，再从仓库根目录运行：
 
 ```bash
 bash scripts/run_macos_dev.sh
 ```
 
-首次运行前需要在 `desktop/` 执行一次 `npm ci`。如需完全隔离的临时数据和登录会话，可执行 `bash scripts/run_macos_dev.sh --isolated`；数据写入已忽略的 `runtime/desktop-dev/`。开发版与已安装版受单实例保护，不能同时运行。
-
-自动测试与构建：
+默认复用正式 App 的本地数据和登录会话；隔离测试使用：
 
 ```bash
-.venv/bin/pytest
+bash scripts/run_macos_dev.sh --isolated
+```
+
+完整自动化验证：
+
+```bash
+.venv/bin/python -m pytest
 cd desktop
 npm test
 npm run build
+npm run test:electron-exit
 ```
 
-只有准备交付或做安装验收时才生成自包含 sidecar 和未签名 DMG：
+仅发布候选或安装验收需要构建 DMG：
 
 ```bash
-.venv/bin/pip install -e ".[full,dev]"
 cd desktop
 npm run make:dmg
 ```
 
-DMG 位于 `desktop/out/make/`。未签名版本首次打开时，需要在 Finder 中右键 App 选择“打开”，或在“系统设置 → 隐私与安全性”中手动允许。
+产物位于 `desktop/out/make/`。构建过程会生成 Apple Silicon Python sidecar，并校验安装包中的词典、补丁基线、架构和资源布局。
 
-Mac App 使用一份持久网站数据容器，不识别或记录姓名学号。主路径通过标准输入/输出直接调用答题核心，不监听本机 HTTP/WebSocket 端口。桌面端只提供正常答题，不自动复盘，也不保存逐题调试内容。数据位于 `~/Library/Application Support/HDU-SNAP/`。提交后可手动翻到一条错题并点击“记录错题”，也可在设置页手动添加补丁、导入旧版 JSON/JSONC，或从第一阶段项目目录迁入 `patch_rules.jsonc`。
+## 架构边界
 
-“记录错题”每次只扫描当前展示的错题并写入补丁库，不会自动翻页或采集整批结果。设置页尚未保存的手动补丁草稿会在本次 App 运行期间跨页面保留，保存成功后才清空。
-
-补丁库按最新优先显示；这只是界面排序，不会改写 `patch_rules.jsonc` 的既有顺序或答题匹配逻辑。
-
-桌面界面采用奶油纸、陶土、芥末黄和深橄榄组成的暖色设计，不使用蓝白商务风。应用图标均为随源码发布的 SVG，首页与首次引导使用本地打包的学习插画；界面不加载网络字体或远程视觉资源。学习页仍保持 412px 答题画布居中，答题详情独立贴近窗口右侧。
-
-首页每次启动默认 100 题，并提供 90、95、100 三个快捷题量。点击“进入学习站点”后会等待内嵌网页实际切换到设置的学习首页，再显示带“开始答题”按钮的待就绪批次。
-
-仓库根目录的 `patch_rules.jsonc` 是发布内置补丁基线。新安装会把它完整播种到用户数据目录；升级只补入用户补丁中尚不存在的题目，不覆盖已有手动修正。DMG 构建完成后会强制校验 App 内补丁与仓库基线逐字节一致。
-
-## 旧版 Windows / 插件快速开始
-
-需要 Python 3.10+、Chrome 和可选的 DeepSeek API Key。
-
-1. 创建本地配置：
-
-```powershell
-copy .env.example .env
-notepad .env
+```text
+Electron 本地 UI + 隔离 WebContentsView
+                  │
+                  │ JSON Lines 标准输入/输出
+                  ▼
+          Python sidecar
+                  │
+                  ▼
+       Solver / 词典 / 补丁 / DeepSeek
 ```
 
-2. 如需大模型兜底，在 `.env` 填写 `DEEPSEEK_API_KEY`。
-3. 安装完整依赖（包含可选的 DeepSeek 客户端）：
+Mac App 不监听本机 HTTP/WebSocket 端口。跨平台协议模型保留在 `hdu_snap.protocol`，但第一阶段的 Chrome 插件、FastAPI 服务、CLI、调试报表和旧启动脚本已在 v2.4.0 候选代码中退场。
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\setup_full_windows.ps1
-```
+更多资料：
 
-安装脚本会验证 Python 版本。如果已有 `.venv` 低于 Python 3.10，会先将其移动到带时间戳的 `.venv-python*-backup-*` 目录，再用兼容解释器创建新环境，不会直接删除旧环境。
-
-4. 在 `chrome://extensions/` 开启开发者模式，选择“加载已解压的扩展程序”，加载仓库中的 `extension` 文件夹。
-5. 启动后端：
-
-```powershell
-.\.venv\Scripts\python.exe main.py
-```
-
-6. 选择正常或调试模式并输入答题数量。登录站点并手动进入题目页后，插件会开始工作。
-
-旧入口继续受支持，也可以使用新的 CLI：
-
-```powershell
-.\.venv\Scripts\hdu-snap.exe serve
-.\.venv\Scripts\hdu-snap.exe serve --mode normal --answer-count 100
-.\.venv\Scripts\hdu-snap.exe config --check
-```
-
-## 后端与插件设置
-
-默认后端地址是 `http://127.0.0.1:8765`。
-
-- 健康检查：[http://127.0.0.1:8765/health](http://127.0.0.1:8765/health)
-- 插件安全配置：[http://127.0.0.1:8765/api/v1/client-config](http://127.0.0.1:8765/api/v1/client-config)
-- 自定义端口时，同时修改 `.env` 中的 `HDU_SNAP_SERVER_PORT`，并在 Chrome 扩展详情页打开 HDU-SNAP 的“扩展程序选项”保存新地址。
-
-所有配置项及默认值见 [.env.example](./.env.example)。真实 `.env` 和运行时数据不会提交到 Git。
-
-## 运行模式
-
-- 正常模式：自动选择并翻页，在配置的最后一题挂起，等待用户检查和提交。
-- 调试模式：提交后从结果页采集错题，写入 `runtime/` 调试记录，并更新 `patch_rules.jsonc`。
-
-生成调试报告：
-
-```powershell
-.\.venv\Scripts\python.exe generate_debug_report.py
-```
-
-或：
-
-```powershell
-.\.venv\Scripts\hdu-snap.exe report
-```
-
-## 开发
-
-Python 轻量开发环境：
-
-```bash
-python3.10 -m venv .venv
-. .venv/bin/activate
-python -m pip install -e ".[dev]"
-python -m pytest
-```
-
-插件源码位于 `extension/src/`，可加载产物提交在 `extension/dist/`：
-
-```bash
-cd extension
-npm ci
-npm test
-npm run build
-```
-
-如果安装时看到 `requires a different Python`，说明旧虚拟环境版本过低。更新代码后重新运行对应的 `setup_full_*` 脚本即可；若系统中没有 Python 3.10+，macOS 可先执行 `brew install python@3.12`。
-
-更多内容：
-
-- [Mac 教程](./MACOS_GUIDE.md)
-- [技术文档](./TECHNICAL.md)
+- [技术文档](TECHNICAL.md)
+- [macOS 使用指南](MACOS_GUIDE.md)
+- [技术选型 ADR](docs/architecture/ADR-001-macos-app-stack.md)
+- [PRD 台账](docs/PRD_REGISTRY.md)

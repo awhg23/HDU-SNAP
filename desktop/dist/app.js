@@ -9,7 +9,8 @@ let selfCheckResult = null;
 let records = null;
 let patches = null;
 let diagnostic = null;
-let recordFilters = {};
+let recordFilters = { status: "", dateFrom: "", dateTo: "" };
+let diagnosticPrivacyConfirmed = false;
 let patchDraft = {
   source_text: "",
   answer_text: "",
@@ -141,7 +142,7 @@ function renderOnboarding() {
 
 function renderBlocked() {
   setBrowserVisible(false);
-  root.innerHTML = `<main class="recovery-page"><section class="recovery-card"><span class="recovery-icon">${icon("archive")}</span><span class="eyebrow">SAFE RECOVERY</span><h1>先停一下，我们保护住了数据。</h1><p class="error-panel">${esc(state.blocked)}</p><p>主流程已暂停，避免继续写入。你可以先查看备份，或者导出一份不含密钥和会话信息的诊断包。</p><div class="row"><button class="primary" data-action="load-blocked-diagnostic">${icon("archive")} 查看可用备份</button><button data-action="export-diagnostic">${icon("download")} 导出脱敏诊断</button></div>${diagnostic?.backups?.length ? `<div class="backup-list">${diagnostic.backups.map((name)=>`<button data-restore-backup="${esc(name)}">${icon("rotate")}<span>恢复 ${esc(name)}</span></button>`).join("")}</div>` : ""}</section></main>`;
+  root.innerHTML = `<main class="recovery-page"><section class="recovery-card"><span class="recovery-icon">${icon("archive")}</span><span class="eyebrow">SAFE RECOVERY</span><h1>先停一下，我们保护住了数据。</h1><p class="error-panel">${esc(state.blocked)}</p><p>主流程已暂停，避免继续写入。你可以先查看备份，或者导出一份不含密钥和会话信息的诊断包。</p><label class="privacy-confirm"><input id="diagnostic-privacy" type="checkbox" ${diagnosticPrivacyConfirmed ? "checked" : ""}><span>我确认诊断包可能包含答题内容、网页快照和页面中可见的个人信息。</span></label><div class="row"><button class="primary" data-action="load-blocked-diagnostic">${icon("archive")} 查看可用备份</button><button data-action="export-diagnostic" ${diagnosticPrivacyConfirmed ? "" : "disabled"}>${icon("download")} 导出脱敏诊断</button></div>${diagnostic?.backups?.length ? `<div class="backup-list">${diagnostic.backups.map((name)=>`<button data-restore-backup="${esc(name)}">${icon("rotate")}<span>恢复 ${esc(name)}</span></button>`).join("")}</div>` : ""}</section></main>`;
 }
 
 function renderHome() {
@@ -227,8 +228,8 @@ function renderLearning() {
     "learning");
 }
 
-async function loadRecords() {
-  records = await window.hduSnap.listRecords({ ...recordFilters, page: 1 });
+async function loadRecords(pageNumber = records?.page || 1) {
+  records = await window.hduSnap.listRecords({ ...recordFilters, page: pageNumber });
   render();
 }
 
@@ -237,7 +238,7 @@ function renderRecords() {
   if (!records) void loadRecords();
   const items = records?.items || [];
   const actions = `<button data-action="export-csv">${icon("download")} CSV</button><button data-action="export-json">${icon("download")} JSON</button><button class="ghost-danger" data-action="delete-records">${icon("trash")} 删除选中</button>`;
-  return renderShell(`<section class="card table-card"><div class="table-toolbar"><div class="table-filter-controls"><label for="record-status">按状态查看</label><select id="record-status"><option value="" ${!recordFilters.status?"selected":""}>全部状态</option><option value="completed" ${recordFilters.status==="completed"?"selected":""}>已完成</option><option value="stopped" ${recordFilters.status==="stopped"?"selected":""}>已中止</option><option value="interrupted" ${recordFilters.status==="interrupted"?"selected":""}>异常中止</option><option value="submission_unconfirmed" ${recordFilters.status==="submission_unconfirmed"?"selected":""}>未确认提交</option></select><button class="soft" data-action="filter-records">${icon("filter")} 应用筛选</button></div><div class="table-toolbar-tail"><span>${items.length} 条当前结果</span><div class="table-toolbar-actions">${actions}</div></div></div><div class="table-wrap"><table><thead><tr><th class="select-column"><span class="visually-hidden">选择</span></th><th>开始时间</th><th>答题进度</th><th>批次状态</th></tr></thead><tbody>${items.map((item)=>`<tr><td><input class="record-check" aria-label="选择该批次" type="checkbox" value="${esc(item.id)}"></td><td><strong class="table-date">${esc(item.startedAt || item.endedAt)}</strong></td><td><span class="table-progress">${item.answeredCount}<small>/ ${item.targetCount}</small></span></td><td><span class="pill ${esc(item.status)}">${statusText(item.status)}</span></td></tr>`).join("") || `<tr><td colspan="4"><div class="table-empty">${icon("records")}<strong>这里还没有练习记录</strong><span>完成或停止一个批次后，它会出现在这里。</span></div></td></tr>`}</tbody></table></div><footer class="card-footer">${icon("info")} 最多保留 1000 批，超出后自动清理最旧记录。</footer></section>`);
+  return renderShell(`<section class="card table-card"><div class="table-toolbar"><div class="table-filter-controls"><label for="record-status">状态<select id="record-status"><option value="" ${!recordFilters.status?"selected":""}>全部状态</option><option value="completed" ${recordFilters.status==="completed"?"selected":""}>已完成</option><option value="stopped" ${recordFilters.status==="stopped"?"selected":""}>已中止</option><option value="interrupted" ${recordFilters.status==="interrupted"?"selected":""}>异常中止</option><option value="submission_unconfirmed" ${recordFilters.status==="submission_unconfirmed"?"selected":""}>未确认提交</option></select></label><label for="record-date-from">开始日期<input id="record-date-from" type="date" value="${esc(recordFilters.dateFrom)}"></label><label for="record-date-to">结束日期<input id="record-date-to" type="date" value="${esc(recordFilters.dateTo)}"></label><button class="soft" data-action="filter-records">${icon("filter")} 应用</button><button data-action="reset-record-filters">重置</button></div><div class="table-toolbar-tail"><span>共 ${records?.total || 0} 条</span><div class="table-toolbar-actions">${actions}</div></div></div><div class="table-wrap"><table><thead><tr><th class="select-column"><span class="visually-hidden">选择</span></th><th>开始时间</th><th>答题进度</th><th>批次状态</th></tr></thead><tbody>${items.map((item)=>`<tr><td><input class="record-check" aria-label="选择该批次" type="checkbox" value="${esc(item.id)}"></td><td><strong class="table-date">${esc(item.startedAt || item.endedAt)}</strong></td><td><span class="table-progress">${item.answeredCount}<small>/ ${item.targetCount}</small></span></td><td><span class="pill ${esc(item.status)}">${statusText(item.status)}</span></td></tr>`).join("") || `<tr><td colspan="4"><div class="table-empty">${icon("records")}<strong>这里还没有练习记录</strong><span>完成或停止一个批次后，它会出现在这里。</span></div></td></tr>`}</tbody></table></div><footer class="card-footer records-footer"><span>${icon("info")} 最多保留 1000 批，超出后自动清理最旧记录。</span><div class="pagination"><button data-action="records-prev" ${!records || records.page <= 1 ? "disabled" : ""}>${icon("arrowLeft")} 上一页</button><strong>${records?.page || 1} / ${records?.pageCount || 1}</strong><button data-action="records-next" ${!records || records.page >= records.pageCount ? "disabled" : ""}>下一页 ${icon("chevronRight")}</button></div></footer></section>`);
 }
 
 async function loadPatches() { patches = await window.hduSnap.listPatches(); render(); }
@@ -262,7 +263,10 @@ async function loadDiagnostic() { diagnostic = await window.hduSnap.diagnosticSt
 function renderDiagnostic() {
   setBrowserVisible(false);
   if (!diagnostic) void loadDiagnostic();
-  return renderShell(`<section class="health-grid"><article class="health-card card"><div class="health-card-head"><span class="health-icon sage">${icon("diagnostic")}</span><div class="health-head-actions"><span class="health-state good">${icon("check")} 核心在线</span><button class="soft compact-button" data-action="run-self-check">${icon("refresh")} 重新检查</button></div></div><span class="eyebrow">COMPONENTS</span><h2>本地组件</h2><div class="component-list"><div><span>${icon("check")}</span><p><strong>答题流水线</strong><small>补丁、词典与大模型接口就绪</small></p></div><div><span>${state.keyConfigured?icon("check"):icon("minus")}</span><p><strong>DeepSeek</strong><small>${state.keyConfigured ? "Key 已由钥匙串保护" : "未配置，将使用确定性兜底"}</small></p></div><div><span>${icon("check")}</span><p><strong>内嵌网页</strong><small>隔离容器可用</small></p></div></div>${state.coreError?`<p class="error-panel">${esc(state.coreError)}</p>`:""}</article><article class="health-card card"><div class="health-card-head"><span class="health-icon terracotta">${icon("folder")}</span><span class="health-metric">${Math.round((diagnostic?.logBytes||0)/1024)} KB</span></div><span class="eyebrow">LOCAL LOGS</span><h2>日志与诊断</h2><p>日志保留 30 天或 100 MB。诊断包会排除密码、Cookie、令牌和 Key。</p><div class="health-actions"><button data-action="show-logs">${icon("folder")} Finder 中显示</button><button data-action="clear-logs">清空日志</button><button class="primary" data-action="export-diagnostic">${icon("download")} 导出诊断 ZIP</button></div><div class="privacy-note">${icon("shield")} 诊断可能包含答题内容、网页快照和页面中可见的个人信息。</div></article><article class="health-card card version-card"><div class="health-card-head"><span class="health-icon mustard">${icon("refresh")}</span><span class="version-number">v${esc(state.version)}</span></div><span class="eyebrow">VERSION</span><h2>版本维护</h2><p>当前频道：<strong>${esc(state.data.settings.updateChannel === "stable" ? "稳定版" : "测试版")}</strong></p><button data-action="check-update">立即检查新版本 ${icon("arrowRight")}</button><div class="privacy-note">${icon("info")} 只读取公开版本清单，不保存 GitHub Token，也不会自动安装更新。</div></article></section>`);
+  const update = state.update;
+  const latest = update?.latest;
+  const updateLabel = update?.status === "update_available" ? "发现新版本" : update?.status === "up_to_date" ? "当前已是最新" : update?.status === "no_eligible_release" ? "当前频道暂无版本" : "尚未检查";
+  return renderShell(`<section class="health-grid"><article class="health-card card"><div class="health-card-head"><span class="health-icon sage">${icon("diagnostic")}</span><div class="health-head-actions"><span class="health-state good">${icon("check")} 核心在线</span><button class="soft compact-button" data-action="run-self-check">${icon("refresh")} 重新检查</button></div></div><span class="eyebrow">COMPONENTS</span><h2>本地组件</h2><div class="component-list"><div><span>${icon("check")}</span><p><strong>答题流水线</strong><small>补丁、词典与大模型接口就绪</small></p></div><div><span>${state.keyConfigured?icon("check"):icon("minus")}</span><p><strong>DeepSeek</strong><small>${state.keyConfigured ? "Key 已由钥匙串保护" : "未配置，将使用确定性兜底"}</small></p></div><div><span>${icon("check")}</span><p><strong>内嵌网页</strong><small>隔离容器可用</small></p></div></div>${state.coreError?`<p class="error-panel">${esc(state.coreError)}</p>`:""}</article><article class="health-card card"><div class="health-card-head"><span class="health-icon terracotta">${icon("folder")}</span><span class="health-metric">${Math.round((diagnostic?.logBytes||0)/1024)} KB</span></div><span class="eyebrow">LOCAL LOGS</span><h2>日志与诊断</h2><p>日志保留 30 天或 100 MB。诊断包会排除密码、Cookie、令牌和 Key。</p><label class="privacy-confirm"><input id="diagnostic-privacy" type="checkbox" ${diagnosticPrivacyConfirmed ? "checked" : ""}><span>我确认诊断包可能包含答题内容、网页快照和页面中可见的个人信息。</span></label><div class="health-actions"><button data-action="show-logs">${icon("folder")} Finder 中显示</button><button data-action="clear-logs">清空日志</button><button class="primary" data-action="export-diagnostic" ${diagnosticPrivacyConfirmed ? "" : "disabled"}>${icon("download")} 导出诊断 ZIP</button></div></article><article class="health-card card version-card"><div class="health-card-head"><span class="health-icon mustard">${icon("refresh")}</span><span class="version-number">v${esc(state.version)}</span></div><span class="eyebrow">VERSION</span><h2>版本维护</h2><p>当前频道：<strong>${esc(state.data.settings.updateChannel === "stable" ? "稳定版" : "测试版")}</strong> · ${esc(updateLabel)}</p>${latest ? `<div class="release-summary"><strong>v${esc(latest.version)}</strong><span>${esc(latest.summary)}</span><code>${esc(latest.sha256)}</code></div>` : ""}<div class="version-actions"><button data-action="check-update">立即检查新版本 ${icon("refresh")}</button>${latest ? `<button class="primary" data-action="open-release">打开私有 Release ${icon("arrowRight")}</button>` : ""}</div><div class="privacy-note">${icon("info")} 只读取公开版本清单，不保存 GitHub Token，也不会自动下载或安装更新。</div></article></section>`);
 }
 
 function render() {
@@ -277,6 +281,10 @@ root.addEventListener("change", (event) => {
   if (event.target.id === "answer-count") {
     answerCount = event.target.value;
     document.querySelectorAll("[data-answer-preset]").forEach((button) => button.classList.toggle("active", Number(button.dataset.answerPreset) === Number(answerCount)));
+  }
+  if (event.target.id === "diagnostic-privacy") {
+    diagnosticPrivacyConfirmed = event.target.checked;
+    render();
   }
 });
 
@@ -344,15 +352,36 @@ root.addEventListener("click", async (event) => {
   else if (action === "capture-wrong-question") {
     wrongQuestionFeedback = { tone: "working", text: "正在扫描当前题…" };
     render();
-    const result = await window.hduSnap.captureWrongQuestion();
+    let result = await window.hduSnap.captureWrongQuestion();
+    if (result?.status === "conflict") {
+      const existing = (result.existingRules || []).map((rule) => rule.answer_text).join("、") || "未知答案";
+      if (confirm(`补丁库中已有同题答案：${existing}。本次识别为：${result.answerText}。确认替换吗？`)) {
+        result = await window.hduSnap.captureWrongQuestion({ confirmConflict: true });
+      } else {
+        wrongQuestionFeedback = { tone: "error", text: "已保留原补丁，未写入本次结果。" };
+        render();
+        return;
+      }
+    }
     wrongQuestionFeedback = result?.ok === false
       ? { tone: "error", text: result.error || "当前错题记录失败" }
-      : { tone: "success", text: `已记录：${result.sourceText} → ${result.answerText}` };
+      : result?.status === "duplicate"
+        ? { tone: "success", text: `补丁已存在：${result.sourceText} → ${result.answerText}` }
+        : { tone: "success", text: `已记录：${result.sourceText} → ${result.answerText}` };
     render();
   }
-  else if (action === "filter-records") { recordFilters={status:document.getElementById("record-status").value}; records=await window.hduSnap.listRecords({...recordFilters,page:1}); render(); }
+  else if (action === "filter-records") {
+    const dateFrom = document.getElementById("record-date-from").value;
+    const dateTo = document.getElementById("record-date-to").value;
+    if (dateFrom && dateTo && dateFrom > dateTo) return alert("开始日期不能晚于结束日期。");
+    recordFilters = { status: document.getElementById("record-status").value, dateFrom, dateTo };
+    await loadRecords(1);
+  }
+  else if (action === "reset-record-filters") { recordFilters={status:"",dateFrom:"",dateTo:""}; await loadRecords(1); }
+  else if (action === "records-prev") await loadRecords(Math.max(1, (records?.page || 1) - 1));
+  else if (action === "records-next") await loadRecords(Math.min(records?.pageCount || 1, (records?.page || 1) + 1));
   else if (["export-csv","export-json"].includes(action)) { if(confirm("导出包含本地批次记录，请确认保存位置安全。")) await call(window.hduSnap.exportRecords({format:action.endsWith("json")?"json":"csv",privacyConfirmed:true,filters:recordFilters})); }
-  else if (action === "delete-records") { const ids=[...document.querySelectorAll(".record-check:checked")].map(x=>x.value); if(ids.length&&confirm("删除后不可恢复，确定删除？")){await call(window.hduSnap.deleteRecords(ids));await loadRecords();} }
+  else if (action === "delete-records") { const ids=[...document.querySelectorAll(".record-check:checked")].map(x=>x.value); if(ids.length&&confirm("删除后不可恢复，确定删除？")){await call(window.hduSnap.deleteRecords(ids));await loadRecords(records?.page || 1);} }
   else if (action === "save-general") { await call(window.hduSnap.updateSettings({learningHome:document.getElementById("learning-home").value,updateChannel:document.getElementById("update-channel").value})); }
   else if (action === "clear-browser-session" && confirm("这会清除当前网站登录状态，需要重新手动登录。确定继续？")) await call(window.hduSnap.clearBrowserSession());
   else if (action === "remove-key" && confirm("移除 DeepSeek Key？之后将使用确定性兜底。")) await call(window.hduSnap.removeKey());
@@ -364,8 +393,16 @@ root.addEventListener("click", async (event) => {
     const note = document.getElementById("patch-note")?.value.trim() || "";
     if (!source_text || !answer_text) return alert("题目和正确答案必须填写。");
     const conflicts = (patches?.rules || []).filter((rule) => String(rule.source_text).trim() === source_text && String(rule.answer_text).trim() !== answer_text);
-    if (conflicts.length && !confirm("已有相同题目的其他补丁。继续会替换旧规则，确定保存？")) return;
-    const result = await call(window.hduSnap.updatePatch({ source_text, answer_text, wrong_answer_text, note }));
+    let conflictConfirmed = false;
+    if (conflicts.length) {
+      if (!confirm("已有相同题目的其他补丁。继续会替换旧规则，确定保存？")) return;
+      conflictConfirmed = true;
+    }
+    let result = await call(window.hduSnap.updatePatch({ source_text, answer_text, wrong_answer_text, note, confirm_conflict: conflictConfirmed }));
+    if (result?.status === "conflict") {
+      if (!confirm("补丁库中存在规范化后相同的题目。继续会替换旧规则，确定保存？")) return;
+      result = await call(window.hduSnap.updatePatch({ source_text, answer_text, wrong_answer_text, note, confirm_conflict: true }));
+    }
     if (result?.ok !== false) {
       patchDraft = { source_text: "", answer_text: "", wrong_answer_text: "", note: "" };
       await loadPatches();
@@ -378,8 +415,9 @@ root.addEventListener("click", async (event) => {
   else if (action === "reset-all") { const value=prompt("此操作不可恢复。请输入：重置 HDU-SNAP"); if(value) await call(window.hduSnap.resetAll(value)); }
   else if (action === "show-logs") window.hduSnap.showLogs();
   else if (action === "clear-logs" && confirm("清空本地日志？")) { await call(window.hduSnap.clearLogs()); await loadDiagnostic(); }
-  else if (action === "export-diagnostic" && confirm("诊断包可能包含答题数据、网页快照及页面中可见的个人信息，但不含密码、Cookie、会话令牌或 Key。确认导出？")) await call(window.hduSnap.exportDiagnostic({privacyConfirmed:true}));
-  else if (action === "check-update") { const result=await call(window.hduSnap.checkUpdate(true)); if(result?.status==="not_configured") alert("尚未配置公开版本清单地址。") ; else if(result?.latest) alert(`最新版本：${result.latest.version}`); }
+  else if (action === "export-diagnostic" && diagnosticPrivacyConfirmed) await call(window.hduSnap.exportDiagnostic({privacyConfirmed:true}));
+  else if (action === "check-update") { const result=await call(window.hduSnap.checkUpdate(true)); if(result?.ok!==false){state={...state,update:result};render();} }
+  else if (action === "open-release" && confirm("将打开私有 GitHub Release。需要登录且拥有 HDU-SNAP 仓库访问权限，继续吗？")) await call(window.hduSnap.openLatestRelease());
 });
 
 window.hduSnap.onState((next) => {

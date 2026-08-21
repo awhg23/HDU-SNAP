@@ -56,7 +56,25 @@ class ErrorResponse(BaseModel):
     item_id: int | None = None
 
 
+class BatchSummaryResponse(BaseModel):
+    type: str = "batch_summary"
+    session_id: str | None = None
+    total_items: int
+    ai_call_count: int
+    review_mode: bool
+    status: str = "pending_manual_confirmation"
+
+
+class ReviewResultsAckResponse(BaseModel):
+    type: str = "review_results_ack"
+    session_id: str | None = None
+    status: str
+    error_count: int
+    patch_count: int
+
+
 ClientMessage = SolveItemPayload | BatchCompletePayload | ReviewResultsPayload
+ServerMessage = DecisionResponse | ErrorResponse | BatchSummaryResponse | ReviewResultsAckResponse
 
 
 def _normalize_options(raw_options: Any, prefix: str = "") -> dict[str, str]:

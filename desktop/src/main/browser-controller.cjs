@@ -87,7 +87,7 @@ class BrowserController {
     contents.on("did-navigate-in-page", (_event, url) => this._navigationChanged(url));
     contents.on("page-title-updated", (_event, title) => this.onState({ title }));
     contents.on("did-fail-load", (_event, code, description, url, isMainFrame) => {
-      if (isMainFrame) this.onState({ loadError: { code, description, url } });
+      if (isMainFrame && code !== -3) this.onState({ loadError: { code, description, url } });
     });
     contents.on("did-finish-load", async () => {
       try {
@@ -99,7 +99,13 @@ class BrowserController {
       } catch {}
     });
     contents.on("render-process-gone", (_event, details) => {
-      this.onState({ crashed: true, reason: details.reason });
+      this.onState({
+        crashed: true,
+        crashDetails: {
+          reason: details.reason,
+          exitCode: details.exitCode
+        }
+      });
     });
   }
 
@@ -108,6 +114,9 @@ class BrowserController {
     this.onState({
       url,
       loadError: null,
+      questionReady: false,
+      resultPage: false,
+      wrongQuestionReady: false,
       canGoBack: this.view.webContents.navigationHistory.canGoBack(),
       canGoForward: this.view.webContents.navigationHistory.canGoForward()
     });

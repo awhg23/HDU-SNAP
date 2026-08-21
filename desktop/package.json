@@ -1,7 +1,7 @@
 {
   "name": "hdu-snap-desktop",
   "productName": "HDU-SNAP",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "HDU-SNAP 一体化 macOS 答题应用",
   "private": true,
   "main": "src/main/index.cjs",
@@ -19,9 +19,11 @@
     "make:dmg": "npm run build && npm run package:sidecar && npm run prepare:resources && electron-forge make --arch=arm64 && npm run verify:package"
   },
   "dependencies": {
-    "archiver": "7.0.1"
+    "archiver": "7.0.1",
+    "semver": "7.8.5"
   },
   "devDependencies": {
+    "@electron/asar": "3.4.1",
     "@electron-forge/cli": "7.11.2",
     "@electron-forge/maker-dmg": "7.11.2",
     "electron": "43.3.0",

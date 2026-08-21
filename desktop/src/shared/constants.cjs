@@ -1,15 +1,20 @@
 "use strict";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const PROTOCOL_VERSION = 1;
 const MAX_BATCH_RECORDS = 1000;
 const DEFAULT_ANSWER_COUNT = 100;
 const QUESTION_RETRY_LIMIT = 3;
 const SUBMISSION_DETECTION_TIMEOUT_MS = 15_000;
+const PAGE_EXECUTION_GRACE_MS = 5_000;
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const LOG_RETENTION_DAYS = 30;
 const LOG_MAX_BYTES = 100 * 1024 * 1024;
 const BROWSER_PARTITION = "persist:hdu-snap-browser";
+const UPDATE_MANIFEST_URL =
+  "https://raw.githubusercontent.com/awhg23/HDU-SNAP-update-manifest/main/manifest.json";
+const RELEASE_HOST = "github.com";
+const RELEASE_PATH_PREFIX = "/awhg23/HDU-SNAP/releases/";
 
 const SUPPORTED_SITE_URLS = Object.freeze([
   "https://skl.hduhelp.com/?type=5#/english/list",
@@ -59,11 +64,15 @@ module.exports = {
   LOG_MAX_BYTES,
   LOG_RETENTION_DAYS,
   MAX_BATCH_RECORDS,
+  PAGE_EXECUTION_GRACE_MS,
   PROTOCOL_VERSION,
   QUESTION_RETRY_LIMIT,
+  RELEASE_HOST,
+  RELEASE_PATH_PREFIX,
   SCHEMA_VERSION,
   SUBMISSION_DETECTION_TIMEOUT_MS,
   SUPPORTED_HOSTS,
   SUPPORTED_SITE_URLS,
-  UPDATE_CHECK_INTERVAL_MS
+  UPDATE_CHECK_INTERVAL_MS,
+  UPDATE_MANIFEST_URL
 };

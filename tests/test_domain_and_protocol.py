@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from hdu_snap.api.contracts import ReviewResultsPayload, SolveItemPayload, parse_client_message
+from hdu_snap.protocol import (
+    BatchSummaryResponse,
+    ReviewResultsAckResponse,
+    ReviewResultsPayload,
+    SolveItemPayload,
+    parse_client_message,
+)
 from hdu_snap.domain.text import clean_option_text, clean_source_text, normalize_text
 
 
@@ -49,3 +55,17 @@ def test_review_message_validation() -> None:
     assert parsed.errors[0].correct_target == "A"
     with pytest.raises(ValueError):
         parse_client_message({"item_id": 1, "source_text": "news", "options": {"A": "x"}})
+
+
+def test_legacy_response_shapes_remain_versioned_protocol_models() -> None:
+    summary = BatchSummaryResponse(total_items=100, ai_call_count=3, review_mode=False)
+    assert summary.model_dump() == {
+        "type": "batch_summary",
+        "session_id": None,
+        "total_items": 100,
+        "ai_call_count": 3,
+        "review_mode": False,
+        "status": "pending_manual_confirmation",
+    }
+    ack = ReviewResultsAckResponse(status="ignored", error_count=0, patch_count=0)
+    assert ack.type == "review_results_ack"

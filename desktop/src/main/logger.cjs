@@ -6,9 +6,9 @@ const { LOG_MAX_BYTES, LOG_RETENTION_DAYS } = require("../shared/constants.cjs")
 
 function redact(value) {
   return String(value == null ? "" : value)
+    .replace(/Bearer\s+[^\s]+/gi, "Bearer [REDACTED]")
     .replace(/(deepseek|api[_-]?key|authorization|cookie|token|password)(\s*[=:]\s*)[^\s,;]+/gi, "$1$2[REDACTED]")
-    .replace(/sk-[A-Za-z0-9_-]{8,}/g, "[REDACTED_KEY]")
-    .replace(/Bearer\s+[^\s]+/gi, "Bearer [REDACTED]");
+    .replace(/sk-[A-Za-z0-9_-]{8,}/g, "[REDACTED_KEY]");
 }
 
 class LocalLogger {

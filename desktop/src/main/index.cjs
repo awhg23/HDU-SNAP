@@ -17,11 +17,14 @@ const { BatchMachine } = require("../shared/batch-machine.cjs");
 const {
   BATCH_STATUS,
   DEFAULT_AUTOMATION_CONFIG,
-  SUPPORTED_SITE_URLS
+  PAGE_EXECUTION_GRACE_MS,
+  SUPPORTED_SITE_URLS,
+  UPDATE_MANIFEST_URL
 } = require("../shared/constants.cjs");
 const { isSupportedAutomationUrl, positiveInteger, requirePlainObject, validateOptions } = require("../shared/validation.cjs");
 const { BrowserController } = require("./browser-controller.cjs");
 const { CoreSupervisor } = require("./core-supervisor.cjs");
+const { CrashStore } = require("./crash-store.cjs");
 const { createDiagnosticZip, directorySize } = require("./diagnostics.cjs");
 const { exportBatchCsv, exportBatchJson } = require("./exports.cjs");
 const { LocalLogger } = require("./logger.cjs");
@@ -29,12 +32,13 @@ const { readPatchRulesFile, scanLegacyProject } = require("./migration.cjs");
 const { SecretStore } = require("./secret-store.cjs");
 const { SidecarClient } = require("./sidecar-client.cjs");
 const { DesktopStore, defaultState } = require("./store.cjs");
-const { fetchManifest, shouldCheck } = require("./update-checker.cjs");
+const { fetchManifest, isAllowedReleaseUrl, shouldCheck } = require("./update-checker.cjs");
 
 let mainWindow;
 let browser;
 let store;
 let logger;
+let crashStore;
 let secrets;
 let core;
 let coreSupervisor;
@@ -48,8 +52,18 @@ let lastMigrationScan = null;
 let pendingWrongQuestionCapture = null;
 let wrongQuestionCaptureSequence = 0;
 let submissionTimer = null;
+let pageUnavailableTimer = null;
 let appQuitting = false;
 let storeBootError = null;
+let updateResult = null;
+
+process.on("uncaughtExceptionMonitor", (error, origin) => {
+  try {
+    crashStore?.record("main_process_exception", { origin, error });
+  } catch {
+    // Do not mask the original fatal exception if crash-context persistence fails.
+  }
+});
 
 const desktopRoot = path.resolve(__dirname, "../..");
 const projectRoot = path.resolve(desktopRoot, "..");
@@ -97,6 +111,7 @@ function publicState() {
     data: store ? store.snapshot() : null,
     core: coreHealth,
     coreError,
+    update: updateResult,
     page: { ...pageState },
     canStart: Boolean(
       coreHealth?.ok && !coreError && machine?.state.status === BATCH_STATUS.READY
@@ -172,6 +187,55 @@ function requestWrongQuestionCapture() {
   });
 }
 
+function handleBrowserFailure(value) {
+  const failure = value?.crashed
+    ? { kind: "web_process_crash", details: value.crashDetails || null }
+    : value?.loadError
+      ? { kind: "web_load_failure", details: value.loadError }
+      : value?.unavailable
+        ? { kind: "web_page_unavailable", details: value.unavailable }
+      : null;
+  if (!failure) return false;
+  clearTimeout(pageUnavailableTimer);
+  pageUnavailableTimer = null;
+  if (failure.details?.url) {
+    try {
+      const parsed = new URL(failure.details.url);
+      failure.details = { ...failure.details, url: parsed.origin + parsed.pathname };
+    } catch {
+      failure.details = { ...failure.details, url: "[INVALID_URL]" };
+    }
+  }
+  crashStore?.record(failure.kind, failure.details);
+  logger?.warn(failure.kind, JSON.stringify(failure.details || {}));
+  if (machine?.state.status === BATCH_STATUS.RUNNING) {
+    machine.pause(failure.kind);
+    browser?.send("pause");
+    persistMachine();
+  } else {
+    publish();
+  }
+  return true;
+}
+
+function monitorPageExecutable() {
+  clearTimeout(pageUnavailableTimer);
+  pageUnavailableTimer = null;
+  if (machine?.state.status !== BATCH_STATUS.RUNNING) return;
+  if (pageState.supported && pageState.questionReady) return;
+  pageUnavailableTimer = setTimeout(() => {
+    pageUnavailableTimer = null;
+    if (machine?.state.status !== BATCH_STATUS.RUNNING) return;
+    if (pageState.supported && pageState.questionReady) return;
+    handleBrowserFailure({
+      unavailable: {
+        url: pageState.url || "",
+        reason: pageState.supported ? "question_dom_unavailable" : "unsupported_page"
+      }
+    });
+  }, PAGE_EXECUTION_GRACE_MS);
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -206,7 +270,8 @@ function createWindow() {
     logger,
     onState: (value) => {
       pageState = { ...pageState, ...value };
-      publish();
+      monitorPageExecutable();
+      if (!handleBrowserFailure(value)) publish();
     },
     onHttpBlocked: (url) => {
       pageState = { ...pageState, pendingHttpUrl: url };
@@ -237,6 +302,22 @@ async function checkNetwork(url) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function checkForUpdates(manual = false) {
+  const settings = store.state.settings;
+  if (!manual && !shouldCheck(settings.lastUpdateCheckAt)) {
+    return { status: "throttled", latest: updateResult?.latest || null };
+  }
+  store.updateSettings({ lastUpdateCheckAt: new Date().toISOString() });
+  const result = await fetchManifest(
+    UPDATE_MANIFEST_URL,
+    settings.updateChannel,
+    app.getVersion()
+  );
+  updateResult = result;
+  publish();
+  return result;
 }
 
 async function selfCheck() {
@@ -447,7 +528,7 @@ function registerIpc() {
 
   register("patch:list", async () => ({ ok: true, ...(await coreRequest("patch_list")) }));
   register("patch:update", async (payload) => ({ ok: true, ...(await coreRequest("patch_update", payload || {})) }));
-  register("patch:capture-current", async () => {
+  register("patch:capture-current", async (payload) => {
     if (!pageState.supported || !pageState.resultPage) {
       throw new Error("请先在支持的学习站点中打开答题结果页");
     }
@@ -467,14 +548,18 @@ function registerIpc() {
     const wrongAnswerText = wrongTarget ? options[wrongTarget] : "";
     const noteParts = [`Mac App 手动记录错题：第 ${itemId} 题`, `正确 ${correctTarget}`];
     if (wrongTarget) noteParts.push(`错选 ${wrongTarget}`);
-    await coreRequest("patch_update", {
+    const patchResult = await coreRequest("patch_update", {
       source_text: sourceText,
       answer_text: answerText,
       wrong_answer_text: wrongAnswerText,
-      note: noteParts.join(" · ")
+      note: noteParts.join(" · "),
+      skip_duplicate: true,
+      confirm_conflict: payload?.confirmConflict === true
     });
     return {
       ok: true,
+      status: patchResult.status,
+      existingRules: patchResult.existing_rules || [],
       itemId,
       sourceText,
       answerText,
@@ -543,7 +628,9 @@ function registerIpc() {
     ok: true,
     logBytes: directorySize(logRoot()),
     logPath: logger.filePath,
-    lastCrash: store.state.batches.find((batch) => batch.status === BATCH_STATUS.INTERRUPTED) || null,
+    lastCrash: crashStore.read()
+      || store.state.batches.find((batch) => batch.status === BATCH_STATUS.INTERRUPTED)
+      || null,
     core: coreHealth,
     backups: store.listBackups(),
     blocked: storeBootError
@@ -565,16 +652,27 @@ function registerIpc() {
     const result = await dialog.showSaveDialog(mainWindow, { defaultPath: "HDU-SNAP-诊断.zip" });
     if (result.canceled || !result.filePath) return { ok: true, canceled: true };
     const snapshot = await browser.htmlSnapshot().catch(() => "");
-    await createDiagnosticZip({ filePath: result.filePath, state: store.snapshot(), health: coreHealth, logPath: logger.filePath, snapshot });
+    await createDiagnosticZip({
+      filePath: result.filePath,
+      state: store.snapshot(),
+      health: coreHealth,
+      logPath: logger.filePath,
+      crash: crashStore.read(),
+      snapshot
+    });
     return { ok: true, filePath: result.filePath };
   });
 
   register("update:check", async (payload) => {
-    const settings = store.state.settings;
-    if (!payload?.manual && !shouldCheck(settings.lastUpdateCheckAt)) return { ok: true, status: "throttled" };
-    const result = await fetchManifest(settings.updateManifestUrl, settings.updateChannel);
-    store.updateSettings({ lastUpdateCheckAt: new Date().toISOString() });
-    return { ok: true, ...result };
+    return { ok: true, ...(await checkForUpdates(payload?.manual === true)) };
+  });
+  register("update:open-release", async () => {
+    const release = updateResult?.latest;
+    if (!release || !isAllowedReleaseUrl(release.release_url, release.version)) {
+      throw new Error("没有可打开的安全 Release 链接");
+    }
+    await shell.openExternal(release.release_url);
+    return { ok: true };
   });
 
   register("data:reset-all", async (payload) => {
@@ -585,7 +683,8 @@ function registerIpc() {
     browser.destroyView();
     answerHistory = [];
     pageState = { url: "", supported: false, questionReady: false };
-    for (const filePath of [store.filePath, path.join(dataRoot(), "hdu_snap.db"), path.join(dataRoot(), "patch_rules.jsonc"), path.join(dataRoot(), "debug_recent_10000.json"), path.join(dataRoot(), "debug_error_1000.json")]) {
+    crashStore.clear();
+    for (const filePath of [store.filePath, path.join(dataRoot(), "hdu_snap.db"), path.join(dataRoot(), "patch_rules.jsonc")]) {
       if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) fs.unlinkSync(filePath);
     }
     for (const name of store.listBackups()) {
@@ -613,6 +712,7 @@ function registerSiteEvents() {
         supported
       };
       delete pageState.identity;
+      monitorPageExecutable();
       publish();
       return;
     }
@@ -723,8 +823,9 @@ app.on("certificate-error", (event, webContents, url, error, _certificate, callb
   if (browser?.matchesSender(webContents)) {
     event.preventDefault();
     callback(false);
-    pageState = { ...pageState, certificateError: { url, error } };
-    publish();
+    const loadError = { code: "CERTIFICATE_ERROR", description: String(error || "certificate error"), url };
+    pageState = { ...pageState, certificateError: loadError, questionReady: false };
+    handleBrowserFailure({ loadError });
   }
 });
 
@@ -732,6 +833,7 @@ app.whenReady().then(async () => {
   if (!ownsSingleInstanceLock) return;
   fs.mkdirSync(dataRoot(), { recursive: true });
   logger = new LocalLogger(logRoot());
+  crashStore = new CrashStore(logRoot());
   store = new DesktopStore(dataRoot());
   try {
     store.initialize();
@@ -761,8 +863,7 @@ app.whenReady().then(async () => {
   void (async () => {
     if (shouldCheck(store.state.settings.lastUpdateCheckAt)) {
       try {
-        await fetchManifest(store.state.settings.updateManifestUrl, store.state.settings.updateChannel);
-        store.updateSettings({ lastUpdateCheckAt: new Date().toISOString() });
+        await checkForUpdates(false);
       } catch (error) {
         logger.warn("automatic update check failed", error.message);
       }
@@ -772,6 +873,7 @@ app.whenReady().then(async () => {
 
 app.on("before-quit", () => { appQuitting = true; });
 app.on("will-quit", () => {
+  clearTimeout(pageUnavailableTimer);
   if (core) {
     core.closing = true;
     if (core.isRunning()) core.process.kill("SIGTERM");

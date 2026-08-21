@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 from hdu_snap.application.solver import SolverPipeline
-from hdu_snap.domain.models import DictionaryLookupResult, RuntimeOptions, TierDecision
+from hdu_snap.domain.models import DictionaryLookupResult, TierDecision
 
 
 class PatchStore:
@@ -16,16 +14,6 @@ class PatchStore:
         return self.rules
 
     def upsert_rule(self, **_kwargs):
-        return None
-
-
-class DebugStore:
-    recent_questions = []
-
-    def append_recent(self, _record):
-        return None
-
-    def append_errors(self, _records):
         return None
 
 
@@ -47,8 +35,6 @@ def pipeline(dictionary=None, patch_store=None):
         dictionary or Dictionary(),
         LLM(),
         patch_store or PatchStore(),
-        DebugStore(),
-        RuntimeOptions(),
     )
 
 

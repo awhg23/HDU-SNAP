@@ -50,7 +50,7 @@ test("the settings UI supports manual and legacy patch entry", () => {
   assert.match(source, /id="patch-source"/);
   assert.match(source, /id="patch-answer"/);
   assert.match(source, /data-action="add-patch"/);
-  assert.match(source, /updatePatch\(\{ source_text, answer_text, wrong_answer_text, note \}\)/);
+  assert.match(source, /updatePatch\(\{ source_text, answer_text, wrong_answer_text, note, confirm_conflict:/);
   assert.match(source, /导入旧版补丁（JSON\/JSONC）/);
   assert.match(source, /let patchDraft = \{/);
   assert.match(source, /root\.addEventListener\("input"/);
@@ -64,11 +64,13 @@ test("result pages support explicit one-question patch capture without restoring
   const site = fs.readFileSync(path.join(desktopRoot, "src/site/preload.cjs"), "utf8");
   assert.match(renderer, /data-action="capture-wrong-question"/);
   assert.match(renderer, /captureWrongQuestion\(\)/);
-  assert.match(bridge, /captureWrongQuestion:\s*\(\)\s*=>\s*invoke\("patch:capture-current"\)/);
+  assert.match(bridge, /captureWrongQuestion:\s*\(payload\)\s*=>\s*invoke\("patch:capture-current", payload\)/);
   assert.match(site, /command\.type === "capture-wrong-question"/);
   assert.match(site, /send\("wrong-question-scan-result"/);
   assert.match(main, /register\("patch:capture-current"/);
   assert.match(main, /coreRequest\("patch_update"/);
+  assert.match(main, /skip_duplicate:\s*true/);
+  assert.match(renderer, /result\?\.status === "conflict"/);
   assert.doesNotMatch(renderer, /自动复盘|开始复盘|调试复盘/);
   assert.doesNotMatch(main, /register\("review:/);
 });
@@ -81,6 +83,13 @@ test("records and diagnostics use compact functional toolbars without marketing 
   assert.doesNotMatch(renderer, /设定一个舒服的题量，登录和最终提交仍然由你掌握。/);
   assert.match(renderer, /table-toolbar-actions/);
   assert.match(renderer, /data-action="run-self-check"/);
+  assert.match(renderer, /id="record-date-from" type="date"/);
+  assert.match(renderer, /id="record-date-to" type="date"/);
+  assert.match(renderer, /data-action="records-prev"/);
+  assert.match(renderer, /data-action="records-next"/);
+  assert.match(renderer, /id="diagnostic-privacy" type="checkbox"/);
+  assert.match(renderer, /data-action="export-diagnostic" \$\{diagnosticPrivacyConfirmed \? "" : "disabled"\}/);
+  assert.match(renderer, /需要登录且拥有 HDU-SNAP 仓库访问权限/);
 });
 
 test("the patch library renders the newest stored rule first", () => {
@@ -154,6 +163,19 @@ test("the desktop app uses one instance and gates answering on a ready core", ()
   assert.doesNotMatch(source, /core\.request\(/);
 });
 
+test("browser process and load failures pause active answering and enter diagnostics", () => {
+  const main = fs.readFileSync(path.join(desktopRoot, "src/main/index.cjs"), "utf8");
+  const browser = fs.readFileSync(path.join(desktopRoot, "src/main/browser-controller.cjs"), "utf8");
+  assert.match(main, /handleBrowserFailure/);
+  assert.match(main, /machine\.pause\(failure\.kind\)/);
+  assert.match(main, /PAGE_EXECUTION_GRACE_MS/);
+  assert.match(main, /web_page_unavailable/);
+  assert.match(main, /question_dom_unavailable/);
+  assert.match(main, /crashStore\.read\(\)/);
+  assert.match(browser, /render-process-gone/);
+  assert.match(browser, /did-fail-load/);
+});
+
 test("the packaged resources include and self-check the patch baseline", () => {
   const prepare = fs.readFileSync(path.join(desktopRoot, "scripts/prepare-resources.mjs"), "utf8");
   const main = fs.readFileSync(path.join(desktopRoot, "src/main/index.cjs"), "utf8");
@@ -165,7 +187,9 @@ test("the packaged resources include and self-check the patch baseline", () => {
   assert.match(main, /coreHealth\?\.checks\?\.patch_bundle/);
   assert.match(main, /fs\.existsSync\(patchRulesPath\)/);
   assert.doesNotMatch(prepare, /moka-ai|m3e-base|modelSource/);
-  assert.doesNotMatch(sidecarBuild, /sentence_transformers|transformers|sklearn|torch/);
+  for (const retired of ["fastapi", "starlette", "uvicorn", "uvloop", "websockets", "torch", "sentence_transformers", "transformers", "sklearn"]) {
+    assert.match(sidecarBuild, new RegExp(`--exclude-module ${retired}`));
+  }
   assert.match(forge, /resources\\\/prepared/);
   assert.match(forge, /electron-v43\.3\.0-darwin-arm64\.zip/);
   assert.match(manifest.scripts["make:dmg"], /package:sidecar/);

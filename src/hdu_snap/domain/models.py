@@ -30,13 +30,3 @@ class RunStats:
 
     def record_ai_call(self) -> None:
         self.ai_call_count += 1
-
-
-@dataclass
-class RuntimeOptions:
-    mode: str = "normal"
-    answer_count: int = 100
-
-    @property
-    def is_debug(self) -> bool:
-        return self.mode == "debug"

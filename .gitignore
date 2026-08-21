@@ -5,7 +5,6 @@ CET/.DS_Store
 .venv-python*-backup-*/
 .models/
 *.egg-info/
-extension/node_modules/
 desktop/node_modules/
 desktop/resources/prepared/
 desktop/out/

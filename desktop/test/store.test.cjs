@@ -24,12 +24,58 @@ test("schema 1 account data is removed while its login partition and batches are
   }));
   const store = new DesktopStore(directory);
   const state = store.initialize();
-  assert.equal(state.schemaVersion, 2);
+  assert.equal(state.schemaVersion, 3);
   assert.equal(state.browserPartition, "persist:hdu-snap-profile-p1");
   assert.equal("profiles" in state, false);
   assert.equal("profileName" in state.batches[0], false);
   assert.equal("studentId" in state.batches[0], false);
   assert.equal(fs.readdirSync(path.join(directory, "backups")).length, 1);
+});
+
+test("schema 2 update settings migrate to the fixed public manifest safely", () => {
+  const directory = temporaryDirectory();
+  fs.writeFileSync(path.join(directory, "state.json"), JSON.stringify({
+    schemaVersion: 2,
+    onboardingComplete: true,
+    settings: {
+      learningHome: "https://skl.hdu.edu.cn/#/english/list",
+      updateChannel: "test",
+      lastUpdateCheckAt: "2026-08-20T00:00:00Z",
+      updateManifestUrl: "https://untrusted.example/manifest.json"
+    },
+    batches: [],
+    migrationFingerprints: [],
+    activeBatch: null,
+    browserPartition: "persist:hdu-snap-browser"
+  }));
+  const store = new DesktopStore(directory);
+  const state = store.initialize();
+  assert.equal(state.schemaVersion, 3);
+  assert.equal(state.settings.updateChannel, "test");
+  assert.equal("updateManifestUrl" in state.settings, false);
+  assert.equal(fs.readdirSync(path.join(directory, "backups")).length, 1);
+});
+
+test("schema 3 rejects persisted update and navigation settings outside the allowlist", () => {
+  const directory = temporaryDirectory();
+  fs.writeFileSync(path.join(directory, "state.json"), JSON.stringify({
+    schemaVersion: 3,
+    settings: {
+      learningHome: "https://example.com/phishing",
+      updateChannel: "nightly",
+      lastUpdateCheckAt: { unsafe: true },
+      updateManifestUrl: "https://untrusted.example/manifest.json"
+    },
+    batches: [],
+    migrationFingerprints: [],
+    activeBatch: null,
+    browserPartition: "persist:hdu-snap-browser"
+  }));
+  const state = new DesktopStore(directory).initialize();
+  assert.equal(state.settings.learningHome, "https://skl.hduhelp.com/?type=5#/english/list");
+  assert.equal(state.settings.updateChannel, "stable");
+  assert.equal(state.settings.lastUpdateCheckAt, null);
+  assert.equal("updateManifestUrl" in state.settings, false);
 });
 
 test("batch retention deletes the oldest record", () => {
@@ -43,6 +89,38 @@ test("batch retention deletes the oldest record", () => {
     });
   }
   assert.deepEqual(store.listBatches({}).items.map((item) => item.id), ["b3", "b2"]);
+});
+
+test("record dates include the entire end date in local time", () => {
+  const store = new DesktopStore(temporaryDirectory());
+  store.initialize();
+  const localTimestamp = (day, hour) => new Date(2026, 7, day, hour, 30).toISOString();
+  for (const [id, day, hour] of [["before", 16, 23], ["morning", 17, 0], ["evening", 17, 23], ["after", 18, 0]]) {
+    store.addImportedBatch({ id, status: BATCH_STATUS.COMPLETED, startedAt: localTimestamp(day, hour) });
+  }
+  const result = store.listAllBatches({ dateFrom: "2026-08-17", dateTo: "2026-08-17" });
+  assert.deepEqual(result.map((item) => item.id), ["evening", "morning"]);
+  assert.throws(() => store.listBatches({ dateFrom: "2026-08-18", dateTo: "2026-08-17" }), /date range/);
+});
+
+test("record pagination uses 50 rows and clamps an empty final page", () => {
+  const store = new DesktopStore(temporaryDirectory());
+  store.initialize();
+  for (let index = 0; index < 101; index += 1) {
+    store.addImportedBatch({
+      id: "batch-" + String(index).padStart(3, "0"),
+      status: BATCH_STATUS.COMPLETED,
+      startedAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString()
+    });
+  }
+  assert.equal(store.listBatches({ page: 1 }).items.length, 50);
+  assert.equal(store.listBatches({ page: 3 }).items.length, 1);
+  assert.equal(store.listAllBatches({}).length, 101);
+  store.deleteBatches(["batch-000"]);
+  const clamped = store.listBatches({ page: 3 });
+  assert.equal(clamped.page, 2);
+  assert.equal(clamped.pageCount, 2);
+  assert.equal(clamped.items.length, 50);
 });
 
 test("active batch is recovered as unconfirmed or interrupted", () => {

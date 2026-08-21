@@ -29,13 +29,28 @@ function defaultState() {
     settings: {
       learningHome: SUPPORTED_SITE_URLS[0],
       updateChannel: "stable",
-      lastUpdateCheckAt: null,
-      updateManifestUrl: ""
+      lastUpdateCheckAt: null
     },
     browserPartition: BROWSER_PARTITION,
     batches: [],
     migrationFingerprints: [],
     activeBatch: null
+  };
+}
+
+function sanitizeSettings(value) {
+  const defaults = defaultState().settings;
+  const candidate = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    learningHome: SUPPORTED_SITE_URLS.includes(candidate.learningHome)
+      ? candidate.learningHome
+      : defaults.learningHome,
+    updateChannel: ["stable", "test"].includes(candidate.updateChannel)
+      ? candidate.updateChannel
+      : defaults.updateChannel,
+    lastUpdateCheckAt: candidate.lastUpdateCheckAt === null || typeof candidate.lastUpdateCheckAt === "string"
+      ? candidate.lastUpdateCheckAt
+      : defaults.lastUpdateCheckAt
   };
 }
 
@@ -69,8 +84,13 @@ class DesktopStore {
       this.state = this.migrate(payload, version);
       this.save();
     } else {
-      this.state = { ...defaultState(), ...payload };
+      this.state = {
+        ...defaultState(),
+        ...payload,
+        settings: sanitizeSettings(payload.settings)
+      };
     }
+    this.state.settings = sanitizeSettings(this.state.settings);
     if (typeof this.state.browserPartition !== "string" || !this.state.browserPartition.startsWith("persist:hdu-snap-")) {
       throw new TypeError("invalid browser partition in application data");
     }
@@ -84,7 +104,11 @@ class DesktopStore {
   }
 
   migrate(payload, version) {
-    const next = { ...defaultState(), ...payload };
+    const next = {
+      ...defaultState(),
+      ...payload,
+      settings: sanitizeSettings(payload.settings)
+    };
     if (version < 1) {
       next.schemaVersion = 1;
       next.migrationFingerprints = Array.isArray(next.migrationFingerprints)
@@ -104,6 +128,10 @@ class DesktopStore {
       next.batches = (Array.isArray(next.batches) ? next.batches : []).map(withoutAccountIdentity);
       next.activeBatch = withoutAccountIdentity(next.activeBatch);
       next.schemaVersion = 2;
+    }
+    if (version < 3) {
+      delete next.settings.updateManifestUrl;
+      next.schemaVersion = 3;
     }
     return next;
   }
@@ -195,9 +223,6 @@ class DesktopStore {
     if (patch.lastUpdateCheckAt === null || typeof patch.lastUpdateCheckAt === "string") {
       allowed.lastUpdateCheckAt = patch.lastUpdateCheckAt;
     }
-    if (typeof patch.updateManifestUrl === "string") {
-      allowed.updateManifestUrl = patch.updateManifestUrl.trim();
-    }
     this.state.settings = { ...this.state.settings, ...allowed };
     this.save();
     return structuredClone(this.state.settings);
@@ -245,25 +270,34 @@ class DesktopStore {
   }
 
   listBatches(filters = {}) {
-    const page = Math.max(1, Number(filters.page || 1));
     const pageSize = 50;
     const items = this.filterBatches(filters);
     const total = items.length;
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
+    const requestedPage = Math.max(1, Math.trunc(Number(filters.page || 1)) || 1);
+    const page = Math.min(requestedPage, pageCount);
     const offset = (page - 1) * pageSize;
     return {
       items: structuredClone(items.slice(offset, offset + pageSize)),
       page,
       pageSize,
       total,
-      pageCount: Math.max(1, Math.ceil(total / pageSize))
+      pageCount
     };
   }
 
   filterBatches(filters = {}) {
+    const dateFrom = parseLocalDateBoundary(filters.dateFrom, false);
+    const dateTo = parseLocalDateBoundary(filters.dateTo, true);
+    if (dateFrom !== null && dateTo !== null && dateFrom >= dateTo) {
+      throw new TypeError("record date range is invalid");
+    }
     const items = this.state.batches.filter((batch) => {
       if (filters.status && batch.status !== filters.status) return false;
-      if (filters.dateFrom && String(batch.startedAt || "") < filters.dateFrom) return false;
-      if (filters.dateTo && String(batch.startedAt || "") > filters.dateTo) return false;
+      const timestamp = Date.parse(batch.startedAt || batch.endedAt || "");
+      if ((dateFrom !== null || dateTo !== null) && !Number.isFinite(timestamp)) return false;
+      if (dateFrom !== null && timestamp < dateFrom) return false;
+      if (dateTo !== null && timestamp >= dateTo) return false;
       return true;
     });
     return items.sort((left, right) =>
@@ -304,8 +338,25 @@ class DesktopStore {
   }
 }
 
+function parseLocalDateBoundary(value, endExclusive) {
+  if (!value) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value));
+  if (!match) throw new TypeError("record date must use YYYY-MM-DD");
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day + (endExclusive ? 1 : 0));
+  const check = new Date(year, month - 1, day);
+  if (check.getFullYear() !== year || check.getMonth() !== month - 1 || check.getDate() !== day) {
+    throw new TypeError("record date is invalid");
+  }
+  return date.getTime();
+}
+
 module.exports = {
   DesktopStore,
   NewerSchemaError,
-  defaultState
+  defaultState,
+  parseLocalDateBoundary,
+  sanitizeSettings
 };
