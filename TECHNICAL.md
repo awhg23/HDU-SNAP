@@ -1,6 +1,6 @@
 # HDU-SNAP 技术文档
 
-本文描述 v2.4.0 候选代码的实际架构。第一阶段的 Chrome 插件、FastAPI/HTTP/WebSocket、CLI、调试报表和旧启动脚本已经删除；跨平台答题核心与版本化协议模型继续保留。
+本文描述 v2.4.0 正式版的实际架构。第二阶段已经完成；第一阶段的 Chrome 插件、FastAPI/HTTP/WebSocket、CLI、调试报表和旧启动脚本已经删除，跨平台答题核心与版本化协议模型继续保留。
 
 ## 1. 总体架构
 
@@ -119,9 +119,9 @@ https://raw.githubusercontent.com/awhg23/HDU-SNAP-update-manifest/main/manifest.
     {
       "version": "2.4.0",
       "channel": "stable",
-      "published_at": "2026-08-22T00:00:00Z",
-      "summary": "版本说明摘要",
-      "sha256": "64 位小写十六进制 SHA-256",
+      "published_at": "2026-08-21T20:25:50Z",
+      "summary": "第二阶段正式完成：补齐记录、诊断和版本检查，删除第一阶段插件与本地服务入口。",
+      "sha256": "4f42ab03d7b72576b59d630436413b828073d8531f7002b281ce83869bfc94bd",
       "release_url": "https://github.com/awhg23/HDU-SNAP/releases/tag/v2.4.0"
     }
   ]
@@ -143,7 +143,7 @@ npm run build
 npm run test:electron-exit
 ```
 
-发布候选 DMG：
+构建发布候选 DMG：
 
 ```bash
 cd desktop
@@ -154,4 +154,4 @@ npm run make:dmg
 
 CI 在 Ubuntu Python 3.10/3.12、macOS Python 3.10 和 Windows Python 3.10 上运行核心测试；桌面任务运行测试、构建和 `dist` 同步检查，macOS 额外执行 Electron 退出冒烟。CI 不访问真实账号、不调用 DeepSeek、不下载模型。
 
-正式发布必须从合并后的 `main` 同一提交构建并验收同一份 DMG，然后创建 Tag/私有 Release，最后把实际时间和 SHA-256 写入公开清单。v2.3.0 Release 必须保留。
+v2.4.0 已从 `main` 提交 `ff18bf9` 构建并验收同一份 DMG，[Tag 与私有 Release](https://github.com/awhg23/HDU-SNAP/releases/tag/v2.4.0)和公开清单均已发布。正式包大小为 `138,263,106` 字节，SHA-256 为 `4f42ab03d7b72576b59d630436413b828073d8531f7002b281ce83869bfc94bd`；v2.3.0 Release 继续保留。

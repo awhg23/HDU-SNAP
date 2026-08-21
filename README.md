@@ -2,18 +2,19 @@
 
 HDU-SNAP 是一款本地运行的 macOS 英语单词答题工具。它把内嵌学习网页、答题核心、补丁维护、记录和诊断整合在一个自包含 App 中；最终提交始终由用户亲自完成。
 
-当前正式版为 **v2.3.0**。仓库正在完成 **v2.4.0 发布候选版**：补齐记录分页与日期筛选、诊断隐私确认和崩溃上下文、固定公开版本清单，并正式删除第一阶段 Chrome 插件、本地 HTTP/WebSocket 服务和 CLI。v2.4.0 在全部自动化与人工验收完成前不会发布。
+当前正式版为 **v2.4.0**，第二阶段已经完成。该版本补齐记录分页与日期筛选、诊断隐私确认和崩溃上下文、固定公开版本清单，并正式删除第一阶段 Chrome 插件、本地 HTTP/WebSocket 服务和 CLI。覆盖安装、真实答题、最终题人工提交、错题记录和全部人工门禁均已通过。
 
 开发者可先阅读 [开发文件指南](docs/DEVELOPMENT_FILE_GUIDE.md)，了解现存文件的职责和必备性。完整需求见 [PRD-001](docs/prd/PRD-001.md)。
 
 ## 正式版下载
 
-- Release：[HDU-SNAP v2.3.0](https://github.com/awhg23/HDU-SNAP/releases/tag/v2.3.0)
-- DMG：[HDU-SNAP.dmg](https://github.com/awhg23/HDU-SNAP/releases/download/v2.3.0/HDU-SNAP.dmg)
+- Release：[HDU-SNAP v2.4.0](https://github.com/awhg23/HDU-SNAP/releases/tag/v2.4.0)
+- DMG：[HDU-SNAP.dmg](https://github.com/awhg23/HDU-SNAP/releases/download/v2.4.0/HDU-SNAP.dmg)
 - 系统：Apple Silicon、macOS 13+
 - 交付方式：未签名、未公证 DMG
-- 文件大小：`139,453,489` 字节
-- SHA-256：`074dcfec1d6774ae6100a3cbdfad02f6075d25f779a80c6ac6c5649f420857e0`
+- 发布时间：`2026-08-21T20:25:50Z`
+- 文件大小：`138,263,106` 字节
+- SHA-256：`4f42ab03d7b72576b59d630436413b828073d8531f7002b281ce83869bfc94bd`
 
 源码和 DMG 位于私有仓库，下载者需要相应 GitHub 访问权限。首次运行方式见 [macOS 使用指南](MACOS_GUIDE.md)。
 
@@ -102,7 +103,7 @@ Electron 本地 UI + 隔离 WebContentsView
        Solver / 词典 / 补丁 / DeepSeek
 ```
 
-Mac App 不监听本机 HTTP/WebSocket 端口。跨平台协议模型保留在 `hdu_snap.protocol`，但第一阶段的 Chrome 插件、FastAPI 服务、CLI、调试报表和旧启动脚本已在 v2.4.0 候选代码中退场。
+Mac App 不监听本机 HTTP/WebSocket 端口。跨平台协议模型保留在 `hdu_snap.protocol`，但第一阶段的 Chrome 插件、FastAPI 服务、CLI、调试报表和旧启动脚本已在 v2.4.0 正式版中退场。
 
 更多资料：
 
