@@ -176,6 +176,21 @@ test("browser process and load failures pause active answering and enter diagnos
   assert.match(browser, /did-fail-load/);
 });
 
+test("manual update checks expose loading and terminal feedback", () => {
+  const renderer = fs.readFileSync(path.join(desktopRoot, "src/renderer/app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(desktopRoot, "src/renderer/styles.css"), "utf8");
+  assert.match(renderer, /let updateCheckFeedback = null/);
+  assert.match(renderer, /aria-busy="\$\{updateChecking\}"/);
+  assert.match(renderer, /role="status" aria-live="polite" aria-atomic="true"/);
+  assert.match(renderer, /正在连接公开版本清单/);
+  assert.match(renderer, /检查完成，当前已是最新版本/);
+  assert.match(renderer, /当前频道暂无适用版本/);
+  assert.match(renderer, /if \(updateCheckFeedback\?\.status === "checking"\) return/);
+  assert.match(styles, /\.update-check-feedback\.checking/);
+  assert.match(styles, /\.update-check-feedback\.error/);
+  assert.match(styles, /@keyframes update-spin/);
+});
+
 test("the packaged resources include and self-check the patch baseline", () => {
   const prepare = fs.readFileSync(path.join(desktopRoot, "scripts/prepare-resources.mjs"), "utf8");
   const main = fs.readFileSync(path.join(desktopRoot, "src/main/index.cjs"), "utf8");

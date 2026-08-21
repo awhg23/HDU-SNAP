@@ -11,6 +11,7 @@ let patches = null;
 let diagnostic = null;
 let recordFilters = { status: "", dateFrom: "", dateTo: "" };
 let diagnosticPrivacyConfirmed = false;
+let updateCheckFeedback = null;
 let patchDraft = {
   source_text: "",
   answer_text: "",
@@ -265,8 +266,12 @@ function renderDiagnostic() {
   if (!diagnostic) void loadDiagnostic();
   const update = state.update;
   const latest = update?.latest;
+  const updateChecking = updateCheckFeedback?.status === "checking";
   const updateLabel = update?.status === "update_available" ? "发现新版本" : update?.status === "up_to_date" ? "当前已是最新" : update?.status === "no_eligible_release" ? "当前频道暂无版本" : "尚未检查";
-  return renderShell(`<section class="health-grid"><article class="health-card card"><div class="health-card-head"><span class="health-icon sage">${icon("diagnostic")}</span><div class="health-head-actions"><span class="health-state good">${icon("check")} 核心在线</span><button class="soft compact-button" data-action="run-self-check">${icon("refresh")} 重新检查</button></div></div><span class="eyebrow">COMPONENTS</span><h2>本地组件</h2><div class="component-list"><div><span>${icon("check")}</span><p><strong>答题流水线</strong><small>补丁、词典与大模型接口就绪</small></p></div><div><span>${state.keyConfigured?icon("check"):icon("minus")}</span><p><strong>DeepSeek</strong><small>${state.keyConfigured ? "Key 已由钥匙串保护" : "未配置，将使用确定性兜底"}</small></p></div><div><span>${icon("check")}</span><p><strong>内嵌网页</strong><small>隔离容器可用</small></p></div></div>${state.coreError?`<p class="error-panel">${esc(state.coreError)}</p>`:""}</article><article class="health-card card"><div class="health-card-head"><span class="health-icon terracotta">${icon("folder")}</span><span class="health-metric">${Math.round((diagnostic?.logBytes||0)/1024)} KB</span></div><span class="eyebrow">LOCAL LOGS</span><h2>日志与诊断</h2><p>日志保留 30 天或 100 MB。诊断包会排除密码、Cookie、令牌和 Key。</p><label class="privacy-confirm"><input id="diagnostic-privacy" type="checkbox" ${diagnosticPrivacyConfirmed ? "checked" : ""}><span>我确认诊断包可能包含答题内容、网页快照和页面中可见的个人信息。</span></label><div class="health-actions"><button data-action="show-logs">${icon("folder")} Finder 中显示</button><button data-action="clear-logs">清空日志</button><button class="primary" data-action="export-diagnostic" ${diagnosticPrivacyConfirmed ? "" : "disabled"}>${icon("download")} 导出诊断 ZIP</button></div></article><article class="health-card card version-card"><div class="health-card-head"><span class="health-icon mustard">${icon("refresh")}</span><span class="version-number">v${esc(state.version)}</span></div><span class="eyebrow">VERSION</span><h2>版本维护</h2><p>当前频道：<strong>${esc(state.data.settings.updateChannel === "stable" ? "稳定版" : "测试版")}</strong> · ${esc(updateLabel)}</p>${latest ? `<div class="release-summary"><strong>v${esc(latest.version)}</strong><span>${esc(latest.summary)}</span><code>${esc(latest.sha256)}</code></div>` : ""}<div class="version-actions"><button data-action="check-update">立即检查新版本 ${icon("refresh")}</button>${latest ? `<button class="primary" data-action="open-release">打开私有 Release ${icon("arrowRight")}</button>` : ""}</div><div class="privacy-note">${icon("info")} 只读取公开版本清单，不保存 GitHub Token，也不会自动下载或安装更新。</div></article></section>`);
+  const updateFeedback = updateCheckFeedback
+    ? `<div class="update-check-feedback ${esc(updateCheckFeedback.status)}" role="status" aria-live="polite" aria-atomic="true">${icon(updateCheckFeedback.status === "error" ? "x" : updateCheckFeedback.status === "checking" ? "refresh" : "check", updateCheckFeedback.status === "checking" ? "update-spinner" : "")}<span>${esc(updateCheckFeedback.message)}</span></div>`
+    : "";
+  return renderShell(`<section class="health-grid"><article class="health-card card"><div class="health-card-head"><span class="health-icon sage">${icon("diagnostic")}</span><div class="health-head-actions"><span class="health-state good">${icon("check")} 核心在线</span><button class="soft compact-button" data-action="run-self-check">${icon("refresh")} 重新检查</button></div></div><span class="eyebrow">COMPONENTS</span><h2>本地组件</h2><div class="component-list"><div><span>${icon("check")}</span><p><strong>答题流水线</strong><small>补丁、词典与大模型接口就绪</small></p></div><div><span>${state.keyConfigured?icon("check"):icon("minus")}</span><p><strong>DeepSeek</strong><small>${state.keyConfigured ? "Key 已由钥匙串保护" : "未配置，将使用确定性兜底"}</small></p></div><div><span>${icon("check")}</span><p><strong>内嵌网页</strong><small>隔离容器可用</small></p></div></div>${state.coreError?`<p class="error-panel">${esc(state.coreError)}</p>`:""}</article><article class="health-card card"><div class="health-card-head"><span class="health-icon terracotta">${icon("folder")}</span><span class="health-metric">${Math.round((diagnostic?.logBytes||0)/1024)} KB</span></div><span class="eyebrow">LOCAL LOGS</span><h2>日志与诊断</h2><p>日志保留 30 天或 100 MB。诊断包会排除密码、Cookie、令牌和 Key。</p><label class="privacy-confirm"><input id="diagnostic-privacy" type="checkbox" ${diagnosticPrivacyConfirmed ? "checked" : ""}><span>我确认诊断包可能包含答题内容、网页快照和页面中可见的个人信息。</span></label><div class="health-actions"><button data-action="show-logs">${icon("folder")} Finder 中显示</button><button data-action="clear-logs">清空日志</button><button class="primary" data-action="export-diagnostic" ${diagnosticPrivacyConfirmed ? "" : "disabled"}>${icon("download")} 导出诊断 ZIP</button></div></article><article class="health-card card version-card"><div class="health-card-head"><span class="health-icon mustard">${icon("refresh")}</span><span class="version-number">v${esc(state.version)}</span></div><span class="eyebrow">VERSION</span><h2>版本维护</h2><p>当前频道：<strong>${esc(state.data.settings.updateChannel === "stable" ? "稳定版" : "测试版")}</strong> · ${esc(updateLabel)}</p>${latest ? `<div class="release-summary"><strong>v${esc(latest.version)}</strong><span>${esc(latest.summary)}</span><code>${esc(latest.sha256)}</code></div>` : ""}${updateFeedback}<div class="version-actions"><button data-action="check-update" ${updateChecking ? "disabled" : ""} aria-busy="${updateChecking}">${updateChecking ? `${icon("refresh", "update-spinner")} 正在检查…` : `立即检查新版本 ${icon("refresh")}`}</button>${latest ? `<button class="primary" data-action="open-release">打开私有 Release ${icon("arrowRight")}</button>` : ""}</div><div class="privacy-note">${icon("info")} 只读取公开版本清单，不保存 GitHub Token，也不会自动下载或安装更新。</div></article></section>`);
 }
 
 function render() {
@@ -416,7 +421,30 @@ root.addEventListener("click", async (event) => {
   else if (action === "show-logs") window.hduSnap.showLogs();
   else if (action === "clear-logs" && confirm("清空本地日志？")) { await call(window.hduSnap.clearLogs()); await loadDiagnostic(); }
   else if (action === "export-diagnostic" && diagnosticPrivacyConfirmed) await call(window.hduSnap.exportDiagnostic({privacyConfirmed:true}));
-  else if (action === "check-update") { const result=await call(window.hduSnap.checkUpdate(true)); if(result?.ok!==false){state={...state,update:result};render();} }
+  else if (action === "check-update") {
+    if (updateCheckFeedback?.status === "checking") return;
+    updateCheckFeedback = { status: "checking", message: "正在连接公开版本清单…" };
+    render();
+    try {
+      const result = await window.hduSnap.checkUpdate(true);
+      if (result?.ok === false) {
+        updateCheckFeedback = { status: "error", message: result.error || "检查失败，请稍后重试。" };
+      } else {
+        state = { ...state, update: result };
+        const message = result?.status === "update_available"
+          ? `发现新版本 v${result.latest?.version || ""}，可以打开私有 Release 查看。`
+          : result?.status === "up_to_date"
+            ? `检查完成，当前已是最新版本 v${state.version}。`
+            : result?.status === "no_eligible_release"
+              ? "检查完成，当前频道暂无适用版本。"
+              : "检查完成。";
+        updateCheckFeedback = { status: result?.status === "update_available" ? "available" : "success", message };
+      }
+    } catch (error) {
+      updateCheckFeedback = { status: "error", message: error?.message || "检查失败，请稍后重试。" };
+    }
+    render();
+  }
   else if (action === "open-release" && confirm("将打开私有 GitHub Release。需要登录且拥有 HDU-SNAP 仓库访问权限，继续吗？")) await call(window.hduSnap.openLatestRelease());
 });
 
