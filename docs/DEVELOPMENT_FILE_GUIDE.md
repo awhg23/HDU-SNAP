@@ -9,6 +9,7 @@
 | 共享核心 | 与 Electron 无关的 Python 领域、应用、协议和基础设施。未来平台应复用这一层。 |
 | 桌面运行 | Electron 主进程、本地 UI、站点适配器和 sidecar 桥。 |
 | 桌面发布 | 只在构建自包含 App/DMG 时需要。 |
+| 官网 | Sites 页面、下载路由和 R2 发布元数据。 |
 | 开发 | 测试、CI、文档、设计规范或维护配置。 |
 | 生成产物 | 由构建生成，不应手改；部分产物为保证可审查而提交。 |
 | 本地私有 | 只属于当前机器，禁止提交。 |
@@ -58,7 +59,7 @@ desktop/src/main/index.cjs
 
 | 文件 | 作用 | 必备性 |
 |---|---|---|
-| `.github/workflows/ci.yml` | 跨平台 Python 核心测试、桌面测试/构建和 macOS Electron 退出冒烟。 | 开发必备。 |
+| `.github/workflows/ci.yml` | 跨平台 Python 核心测试、桌面测试/构建、macOS Electron 退出冒烟和官网验证。 | 开发必备。 |
 | `.github/agents/code-explainer-zh.agent.md` | 中文代码讲解代理提示词，不参与运行。 | 可选开发资料。 |
 | `docs/prd/PRD-001.md` | 第二阶段完整需求、修订、验收和边界。 | 产品维护必备。 |
 | `docs/PRD_REGISTRY.md` | PRD 台账与最新摘要。 | 产品维护必备。 |
@@ -67,9 +68,23 @@ desktop/src/main/index.cjs
 
 `docs/.DS_Store` 是 Finder 生成的非项目文件，应保持忽略并可移到废纸篓。
 
-## 5. 共享 Python 核心 `src/hdu_snap/`
+## 5. 官网工程 `website/`
 
-### 5.1 包入口、配置与协议
+| 文件 | 作用 | 必备性 |
+|---|---|---|
+| `website/.openai/hosting.json` | 保存 Sites 项目标识及 `RELEASES` R2 绑定；不包含密钥。 | 官网发布必备。 |
+| `website/app/page.tsx`、`website/app/globals.css` | 极简下载页及暖色响应式视觉。 | 官网运行必备。 |
+| `website/app/layout.tsx`、`website/public/og.png` | 页面元数据、本地分享图和图标。 | 官网发布必备。 |
+| `website/lib/release.ts` | v2.4.0 文件名、R2 key、大小和 SHA-256 的唯一发布记录。 | 下载校验必备。 |
+| `website/lib/download.mjs`、`website/app/downloads/` | DMG 的 GET、HEAD、Range、缓存和失败关闭响应。 | 下载运行必备。 |
+| `website/tests/rendered-html.test.mjs` | 页面内容、下载响应和无 GitHub 下载回退检查。 | 官网回归必备。 |
+| `website/package.json`、`website/package-lock.json` | Node 22 工具链、测试和可复现依赖。 | 官网开发与发布必备。 |
+
+官网不接入账号、D1、分析或下载计数。DMG 只进入 Sites R2 和发布资产，不进入源码 Git。
+
+## 6. 共享 Python 核心 `src/hdu_snap/`
+
+### 6.1 包入口、配置与协议
 
 | 文件 | 作用 | 必备性 |
 |---|---|---|
@@ -79,7 +94,7 @@ desktop/src/main/index.cjs
 | `src/hdu_snap/bootstrap.py` | 显式组装词典、补丁、LLM 和 Solver 的 `ServiceContainer`。 | 运行必备。 |
 | `src/hdu_snap/sidecar.py` | JSON Lines 无端口入口；提供初始化、健康、答题、补丁维护、Key 验证和关闭。 | 桌面运行/发布必备。 |
 
-### 5.2 应用与领域层
+### 6.2 应用与领域层
 
 | 文件 | 作用 | 必备性 |
 |---|---|---|
@@ -89,7 +104,7 @@ desktop/src/main/index.cjs
 | `src/hdu_snap/domain/models.py` | `TierDecision`、`RunStats` 和字典结果等纯领域类型。 | 业务运行必备。 |
 | `src/hdu_snap/domain/text.py` | 题目/选项清洗、中文释义切分和文本规范化。 | 业务运行必备。 |
 
-### 5.3 基础设施层
+### 6.3 基础设施层
 
 | 文件 | 作用 | 必备性 |
 |---|---|---|
@@ -100,7 +115,7 @@ desktop/src/main/index.cjs
 
 共享核心不得导入 Electron、Chrome、FastAPI 或平台 UI 实现。导入模块不得创建文件、访问网络或初始化模型。
 
-## 6. 根目录脚本 `scripts/`
+## 7. 根目录脚本 `scripts/`
 
 | 文件 | 分类 | 作用 | 必备性 |
 |---|---|---|---|
@@ -109,9 +124,9 @@ desktop/src/main/index.cjs
 
 根目录不再提供 `setup_full_*`、`start_backend*`、`main.py` 或调试报告命令。Python 依赖统一通过 `pip install -e ".[full,dev]"` 安装。
 
-## 7. 桌面工程 `desktop/`
+## 8. 桌面工程 `desktop/`
 
-### 7.1 工程与打包
+### 8.1 工程与打包
 
 | 文件 | 作用 | 必备性 |
 |---|---|---|
@@ -123,7 +138,7 @@ desktop/src/main/index.cjs
 | `desktop/scripts/prepare-resources.mjs` | 准备 sidecar、词典和补丁资源，避免重复打包。 | 发布必备。 |
 | `desktop/scripts/verify-packaged-resources.mjs` | 校验 App 内补丁、词典、sidecar、架构和已退场资源。 | 发布安全必备。 |
 
-### 7.2 Electron 主进程
+### 8.2 Electron 主进程
 
 | 文件 | 作用 | 必备性 |
 |---|---|---|
@@ -140,7 +155,7 @@ desktop/src/main/index.cjs
 | `desktop/src/main/migration.cjs` | 幂等扫描旧项目补丁和可选 Key，不迁移 Cookie 或调试记录。 | 旧数据迁移必备。 |
 | `desktop/src/main/update-checker.cjs` | 固定清单抓取、严格校验、SemVer 排序和 24 小时限流。 | 版本检查必备。 |
 
-### 7.3 本地 UI 与 IPC
+### 8.3 本地 UI 与 IPC
 
 | 文件 | 作用 | 必备性 |
 |---|---|---|
@@ -150,7 +165,7 @@ desktop/src/main/index.cjs
 | `desktop/src/renderer/styles.css` | 暖色设计系统、页面布局、分页、诊断和学习详情样式。 | UI 运行必备。 |
 | `desktop/src/renderer/assets/study-companion.png` | 首次引导和首页本地插画。 | 当前视觉必备。 |
 
-### 7.4 远程站点与共享桌面逻辑
+### 8.4 远程站点与共享桌面逻辑
 
 | 文件 | 作用 | 必备性 |
 |---|---|---|
@@ -160,7 +175,7 @@ desktop/src/main/index.cjs
 | `desktop/src/shared/constants.cjs` | 数据版本、域名、移动参数、固定更新清单和 Release 白名单。 | 桌面运行必备。 |
 | `desktop/src/shared/validation.cjs` | IPC、题量、URL、补丁和站点事件输入校验。 | 安全运行必备。 |
 
-### 7.5 提交的构建产物 `desktop/dist/`
+### 8.5 提交的构建产物 `desktop/dist/`
 
 `dist` 由 `npm run build` 生成并提交，用户和源码开发流程可直接加载。所有文件都不应手改。
 
@@ -173,9 +188,9 @@ desktop/src/main/index.cjs
 | `desktop/dist/site-preload.cjs` | 站点 preload bundle。 | 运行必备、可生成。 |
 | `desktop/dist/assets/study-companion.png` | renderer 本地插画副本。 | 运行必备、可生成。 |
 
-## 8. 测试文件
+## 9. 测试文件
 
-### 8.1 Python `tests/`
+### 9.1 Python `tests/`
 
 | 文件 | 覆盖内容 | 必备性 |
 |---|---|---|
@@ -187,7 +202,7 @@ desktop/src/main/index.cjs
 | `tests/test_solver.py` | 补丁、词典、DeepSeek、兜底和统计。 | 开发必备。 |
 | `tests/test_sidecar.py` | sidecar 方法白名单、初始化、答题、补丁与 Key。 | 桌面核心回归必备。 |
 
-### 8.2 桌面 `desktop/test/`
+### 9.2 桌面 `desktop/test/`
 
 | 文件 | 覆盖内容 | 必备性 |
 |---|---|---|
@@ -202,20 +217,21 @@ desktop/src/main/index.cjs
 | `store.test.cjs` | V3、日期边界、50 条分页、页码收敛和 1000 批清理。 | 数据回归必备。 |
 | `validation.test.cjs` | URL、题量、补丁和站点消息校验。 | 安全回归必备。 |
 
-## 9. 生成物与本地私有内容
+## 10. 生成物与本地私有内容
 
 以下内容不得提交：
 
 - `.env`：遗留或本地开发密钥文件；当前 App 不读取它。
 - `.venv/`、`src/*.egg-info/`、`__pycache__/`、`.pytest_cache/`。
 - `desktop/node_modules/`、`desktop/out/`、`desktop/resources/prepared/`。
+- `website/node_modules/`、`website/.next/`、`website/.vinext/`、`website/.wrangler/`、`website/dist/`。
 - `build/`：PyInstaller 工作目录。
 - `runtime/desktop-dev/`、数据库、日志、诊断 ZIP 和备份。
 - `.models/`：v2.3 前遗留模型目录，可移到废纸篓；不得恢复到发布包。
-- `*.dmg`：发布资产保存在 GitHub Release，不进入源码 Git。
+- `*.dmg`：官网正式下载保存在 Sites R2，GitHub Release 保留发布记录；安装包不进入源码 Git。
 - `.DS_Store`：Finder 元数据。
 
-## 10. 已退场的命令行版文件
+## 11. 已退场的命令行版文件
 
 下列类别已删除且不是“缺文件”：
 

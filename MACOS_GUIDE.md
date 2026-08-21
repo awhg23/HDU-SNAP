@@ -2,9 +2,9 @@
 
 ## 安装正式版
 
-当前正式版是 [v2.4.0](https://github.com/awhg23/HDU-SNAP/releases/tag/v2.4.0)。要求 Apple Silicon Mac 与 macOS 13 或更高版本，运行时不需要外部 Python、Node、Chrome、插件或项目源码。
+当前正式版是 [v2.4.0](https://github.com/awhg23/HDU-SNAP/releases/tag/v2.4.0)。要求 Apple Silicon Mac 与 macOS 13 或更高版本，运行时不需要外部 Python、Node、Chrome、插件或项目源码。正式 DMG 从[产品官网](https://hdu-snap.awhg23.chatgpt.site)独立分发。
 
-1. 下载并打开 `HDU-SNAP.dmg`。
+1. 从[官网下载 `HDU-SNAP.dmg`](https://hdu-snap.awhg23.chatgpt.site/downloads/HDU-SNAP-v2.4.0.dmg)并打开。
 2. 将 HDU-SNAP 拖入“应用程序”。
 3. 因 App 未签名、未公证，请在 Finder 中右键 HDU-SNAP 并选择“打开”。
 4. 若系统仍阻止启动，进入“系统设置 → 隐私与安全性”，对 HDU-SNAP 选择“仍要打开”。
@@ -41,7 +41,7 @@
 
 App 不接入遥测或自动上传。诊断 ZIP 可能包含题目、决策、日志、崩溃上下文和网页中可见的个人信息，因此必须先勾选隐私确认。密码、Cookie、会话令牌、DeepSeek Key 和钥匙串内容始终排除。
 
-版本检查只读取固定公开清单。自动检查每 24 小时最多一次，手动检查不限；App 只打开私有 GitHub Release 页面，不保存 GitHub Token，不自动下载或安装更新。无仓库权限时，浏览器会显示 GitHub 的权限页面。
+版本检查只读取固定公开清单。自动检查每 24 小时最多一次，手动检查不限；App 只打开公开 GitHub Release 记录，不保存 GitHub Token，不自动下载或安装更新。用户下载安装包时应使用官网入口。
 
 用户数据目录：
 
