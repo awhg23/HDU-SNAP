@@ -1,99 +1,112 @@
 # HDU-SNAP
 
-HDU-SNAP 是一个自动做英语单词题的小工具。
+HDU-SNAP 是一款本地运行的 macOS 英语单词答题工具。它把内嵌学习网页、答题核心、补丁维护、记录和诊断整合在一个自包含 App 中；最终提交始终由用户亲自完成。
 
-这份首页教程只写 Windows，而且目标很明确：
+当前正式版为 **v2.3.0**。仓库正在完成 **v2.4.0 发布候选版**：补齐记录分页与日期筛选、诊断隐私确认和崩溃上下文、固定公开版本清单，并正式删除第一阶段 Chrome 插件、本地 HTTP/WebSocket 服务和 CLI。v2.4.0 在全部自动化与人工验收完成前不会发布。
 
-**让你用最简单的方法跑通三级级联**
+开发者可先阅读 [开发文件指南](docs/DEVELOPMENT_FILE_GUIDE.md)，了解现存文件的职责和必备性。完整需求见 [PRD-001](docs/prd/PRD-001.md)。
 
-三级级联指的是：
+## 正式版下载
 
-- Tier 1：字典匹配
-- Tier 2：本地向量模型
-- Tier 3：DeepSeek 大模型
+- Release：[HDU-SNAP v2.3.0](https://github.com/awhg23/HDU-SNAP/releases/tag/v2.3.0)
+- DMG：[HDU-SNAP.dmg](https://github.com/awhg23/HDU-SNAP/releases/download/v2.3.0/HDU-SNAP.dmg)
+- 系统：Apple Silicon、macOS 13+
+- 交付方式：未签名、未公证 DMG
+- 文件大小：`139,453,489` 字节
+- SHA-256：`074dcfec1d6774ae6100a3cbdfad02f6075d25f779a80c6ac6c5649f420857e0`
 
-## Windows 快速开始
+源码和 DMG 位于私有仓库，下载者需要相应 GitHub 访问权限。首次运行方式见 [macOS 使用指南](MACOS_GUIDE.md)。
 
-先准备好 3 样东西：
+## 产品能力
 
-- `Python 3.10` 或更高版本
-- `Chrome`
-- 你自己的 `DeepSeek API Key`
+- App 内手动登录并保留一份跨重启的网站会话。
+- 默认 100 题，快捷题量为 90、95、100，也可输入任意正整数。
+- 决策顺序固定为“补丁规则 → 词典 → DeepSeek → 确定性兜底”。
+- 支持暂停、继续、停止、同题三次重试和异常自动暂停。
+- 最后一题只选择答案，绝不自动点击提交。
+- 结果页可由用户逐题点击“记录错题”，也可手动添加或导入 JSON/JSONC 补丁。
+- 记录支持状态、起止日期筛选和每页 50 条分页；CSV/JSON 导出覆盖当前筛选的全部结果。
+- 诊断包只有在用户勾选隐私确认后才能导出，且排除密码、Cookie、会话令牌和 DeepSeek Key。
+- 版本检查读取固定的公开清单，只展示版本和私有 Release 链接，不保存 GitHub Token，也不自动下载或安装。
 
-然后按下面做。
+App 不识别或保存姓名学号，不保存密码，不提供账号隔离、调试复盘、向量模型或逐题持久化。
 
-1. 下载并解压项目。
-2. 打开项目文件夹。
-3. 在空白处按住 `Shift` 再点鼠标右键，点击“在此处打开 PowerShell 窗口”。
-4. 输入下面这条命令，创建 `.env` 文件：
+## 安装与使用
 
-```powershell
-copy .env.example .env
+1. 打开 DMG，将 HDU-SNAP 拖入“应用程序”。
+2. 在 Finder 中右键 App 并选择“打开”；若仍被阻止，在“系统设置 → 隐私与安全性”中允许。
+3. 完成首次自检。DeepSeek Key 可跳过；保存时由 macOS 钥匙串保护。
+4. 输入题量并进入学习站点，手动登录和导航到题目页。
+5. 识别成功后点击“开始答题”。达到目标后亲自检查并提交。
+
+用户数据位于：
+
+```text
+~/Library/Application Support/HDU-SNAP/
 ```
 
-5. 输入下面这条命令，打开 `.env`：
+升级前会自动保留最近三份数据结构备份。内置补丁首次完整播种，升级只补入缺失题目，不覆盖用户已有修正。
 
-```powershell
-notepad .env
+## 源码开发
+
+要求 Xcode、Apple Silicon Mac、Node.js 和 Python 3.10+。
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/pip install -e ".[full,dev]"
+cd desktop
+npm ci
 ```
 
-6. 把 `DEEPSEEK_API_KEY=` 后面填成你自己的 key，保存并关闭。
-7. 打开 Chrome，在地址栏输入 `chrome://extensions/`。
-8. 打开右上角“开发者模式”。
-9. 点击“加载已解压的扩展程序”。
-10. 选择项目里的 `extension` 文件夹。
-11. 回到 PowerShell。
-12. 输入下面这条命令，一次性装好三级级联需要的依赖和本地向量模型（500mb-1g左右）：
+日常桌面调试无需安装 DMG。先完全退出已安装版，再从仓库根目录运行：
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\setup_full_windows.ps1
+```bash
+bash scripts/run_macos_dev.sh
 ```
 
-13. 输入下面这条命令启动后端：
+默认复用正式 App 的本地数据和登录会话；隔离测试使用：
 
-```powershell
-.\.venv\Scripts\python.exe main.py
+```bash
+bash scripts/run_macos_dev.sh --isolated
 ```
 
-14. 程序启动后，输入 `1`，进入正常模式。
-15. 然后按提示输入答题数量。
-16. 脚本会自动用 Chrome 打开目标网站。
-17. 你手动登录。
-18. 登录后，手动进入题目页面。（地址栏输入 https://skl.hdu.edu.cn/#/english/list）
-19. 进入题目页面后，插件会自动接管答题。
-20. 答完后不会自动提交，你手动提交。
+完整自动化验证：
 
-## 怎样确认三级级联已经开启
+```bash
+.venv/bin/python -m pytest
+cd desktop
+npm test
+npm run build
+npm run test:electron-exit
+```
 
-后端启动后，在浏览器打开：
+仅发布候选或安装验收需要构建 DMG：
 
-- [http://127.0.0.1:8765/health](http://127.0.0.1:8765/health)
+```bash
+cd desktop
+npm run make:dmg
+```
 
-如果你看到：
+产物位于 `desktop/out/make/`。构建过程会生成 Apple Silicon Python sidecar，并校验安装包中的词典、补丁基线、架构和资源布局。
 
-- `vector_mode` 是 `embedding`
-- `.env` 里已经填了 `DEEPSEEK_API_KEY`
+## 架构边界
 
-就说明现在已经具备：
+```text
+Electron 本地 UI + 隔离 WebContentsView
+                  │
+                  │ JSON Lines 标准输入/输出
+                  ▼
+          Python sidecar
+                  │
+                  ▼
+       Solver / 词典 / 补丁 / DeepSeek
+```
 
-- 字典匹配
-- 本地向量模型
-- 大模型兜底
+Mac App 不监听本机 HTTP/WebSocket 端口。跨平台协议模型保留在 `hdu_snap.protocol`，但第一阶段的 Chrome 插件、FastAPI 服务、CLI、调试报表和旧启动脚本已在 v2.4.0 候选代码中退场。
 
-也就是三级级联已经跑起来了。
+更多资料：
 
-## 调试模式
-
-如果你想专门记录错题，启动后输入 `0`。
-
-- 在你手动提交后进入历史记录页
-- 点开刚刚那条记录
-- 下滑两下
-- 自动从题卡里找到红色错题
-- 自动记录错题、错选和正选
-- 自动写入补丁区 `patch_rules.jsonc`
-- 再下滑两下，直到错题记录完毕
-## 其他文档
-
-- [Mac 教程](./MACOS_GUIDE.md)
-- [技术文档](./TECHNICAL.md)
+- [技术文档](TECHNICAL.md)
+- [macOS 使用指南](MACOS_GUIDE.md)
+- [技术选型 ADR](docs/architecture/ADR-001-macos-app-stack.md)
+- [PRD 台账](docs/PRD_REGISTRY.md)

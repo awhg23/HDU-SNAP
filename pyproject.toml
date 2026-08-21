@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hdu-snap"
+version = "2.4.0"
+description = "Shared vocabulary solver core and packaged desktop sidecar for HDU-SNAP"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "pydantic>=2.7,<3.0",
+]
+
+[project.optional-dependencies]
+full = [
+  "openai>=1.30,<2.0",
+]
+dev = [
+  "pytest>=8.2,<9.0",
+  "pytest-asyncio>=0.23,<1.0",
+  "pyinstaller>=6.10,<7.0",
+]
+
+[project.scripts]
+hdu-snap-sidecar = "hdu_snap.sidecar:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+asyncio_mode = "auto"

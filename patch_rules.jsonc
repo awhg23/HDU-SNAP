@@ -257,12 +257,6 @@
       "note": "结果页自动补丁: 第29题, 错选=A->disallow, 正选=C->recede"
     },
     {
-      "source_text": "rig",
-      "answer_text": "塔台",
-      "wrong_answer_text": "波纹",
-      "note": "结果页自动补丁: 第25题, 错选=A->波纹, 正选=B->塔台"
-    },
-    {
       "source_text": "接受者",
       "answer_text": "recipient",
       "wrong_answer_text": "receptionist",

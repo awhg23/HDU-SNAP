@@ -1,0 +1,89 @@
+from __future__ import annotations
+
+import json
+from types import SimpleNamespace
+
+import pytest
+
+from hdu_snap.config import PROJECT_ROOT
+from hdu_snap.domain.models import RunStats
+from hdu_snap.infrastructure.dictionary import DictionaryEngine
+from hdu_snap.infrastructure.models import LLMEngine
+from hdu_snap.infrastructure.stores import PatchRuleStore
+
+
+def write_dictionary(path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {
+                        "word": "news",
+                        "normalized_word": "news",
+                        "raw_meaning": "新闻；消息",
+                        "chinese_terms": ["新闻", "消息"],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_dictionary_and_patch_stores_use_injected_paths(tmp_path) -> None:
+    dictionary_path = tmp_path / "dictionary.json"
+    write_dictionary(dictionary_path)
+    engine = DictionaryEngine(tmp_path / "db.sqlite", dictionary_path)
+    result = engine.lookup_exact("新闻", {"A": "news", "B": "data", "C": "word", "D": "message"})
+    assert result.decision and result.decision.target == "A"
+    patch_store = PatchRuleStore(tmp_path / "patch.jsonc", seed_defaults=False)
+    patch_store.upsert_rule("新闻", "news", "data", "test")
+    assert patch_store.get_rules()[0]["answer_text"] == "news"
+
+
+def test_release_patch_baseline_has_no_source_conflicts() -> None:
+    rules = PatchRuleStore(PROJECT_ROOT / "patch_rules.jsonc", seed_defaults=False).get_rules()
+    normalized_sources = [rule["source_text"].strip().casefold() for rule in rules]
+    assert len(rules) >= 60
+    assert len(normalized_sources) == len(set(normalized_sources))
+
+
+@pytest.mark.asyncio
+async def test_llm_fallback_is_deterministic() -> None:
+    llm = LLMEngine(None, "https://api.deepseek.com", "model", 1, 0)
+    stats = RunStats()
+    decision = await llm.choose(
+        "news",
+        {"A": "新闻", "B": "数据", "C": "项目", "D": "单词"},
+        stats,
+    )
+    assert decision.target == "A"
+    assert decision.method == "确定性兜底"
+    assert stats.ai_call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_llm_disables_thinking_for_single_letter_response() -> None:
+    recorded_request = {}
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            recorded_request.update(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="C"))],
+            )
+
+    llm = LLMEngine(None, "https://api.deepseek.com", "deepseek-v4-flash", 1, 0)
+    llm.client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+
+    decision = await llm.choose(
+        "管理，经营",
+        {"A": "stimulus", "B": "accomplish", "C": "manage", "D": "finish"},
+        RunStats(),
+    )
+
+    assert decision.target == "C"
+    assert decision.method == "大模型决策"
+    assert recorded_request["max_tokens"] == 8
+    assert recorded_request["extra_body"] == {"thinking": {"type": "disabled"}}
