@@ -2,7 +2,7 @@
 
 ## 安装正式版
 
-当前正式版是 v2.3.0。要求 Apple Silicon Mac 与 macOS 13 或更高版本，运行时不需要外部 Python、Node、Chrome、插件或项目源码。
+当前正式版是 [v2.4.0](https://github.com/awhg23/HDU-SNAP/releases/tag/v2.4.0)。要求 Apple Silicon Mac 与 macOS 13 或更高版本，运行时不需要外部 Python、Node、Chrome、插件或项目源码。
 
 1. 下载并打开 `HDU-SNAP.dmg`。
 2. 将 HDU-SNAP 拖入“应用程序”。
@@ -93,8 +93,8 @@ cd desktop
 npm run make:dmg
 ```
 
-产物位于 `desktop/out/make/`。构建会自动生成 Apple Silicon sidecar，并检查安装包内补丁基线、资源位置和打包结果。v2.4.0 的正式 Tag 和 Release 只能在覆盖安装、真实答题、错题记录、诊断和更新检查全部人工验收通过后创建。
+产物位于 `desktop/out/make/`。构建会自动生成 Apple Silicon sidecar，并检查安装包内补丁基线、资源位置和打包结果。v2.4.0 已在覆盖安装、真实答题、错题记录、诊断和更新检查全部人工验收通过后发布。
 
 ## 第一阶段退场说明
 
-v2.4.0 候选代码已经删除 Chrome 插件、FastAPI/HTTP/WebSocket、本地 CLI、调试报表和旧安装/启动脚本。开发与运行均以桌面 App 为唯一产品入口；跨平台 Solver 和版本化协议模型继续保留。
+v2.4.0 正式版已经删除 Chrome 插件、FastAPI/HTTP/WebSocket、本地 CLI、调试报表和旧安装/启动脚本。开发与运行均以桌面 App 为唯一产品入口；跨平台 Solver 和版本化协议模型继续保留。

@@ -6,12 +6,14 @@
 
 HDU-SNAP 是 Apple Silicon、macOS 13+ 的自包含英语单词答题 App。用户在 App 内手动登录、导航、运行答题、人工提交、维护补丁、查看记录和导出诊断，不需要外部 Python、Node、Chrome 或浏览器插件。
 
-- 当前分支：`refactor/extension-backend-architecture`。
-- 当前正式版：`v2.3.0`，已完成覆盖安装和真实答题验收。
-- 当前开发版：`v2.4.0` 发布候选，自动化实现正在最终收口，尚未创建 Tag 或 Release。
+- 当前稳定分支：`main`；功能修改通过独立分支和 PR 合入。
+- 当前正式版：`v2.4.0`，第二阶段已经完成，覆盖安装、真实答题和全部人工门禁均已通过。
+- 正式 Release：`https://github.com/awhg23/HDU-SNAP/releases/tag/v2.4.0`。
+- 正式 DMG：`138,263,106` 字节，SHA-256 为 `4f42ab03d7b72576b59d630436413b828073d8531f7002b281ce83869bfc94bd`。
+- 发布提交：`ff18bf9b7f970709940f0995bb0ad1e72bb7984b`；发布时间为 `2026-08-21T20:25:50Z`。
 - 第二阶段需求：[docs/prd/PRD-001.md](docs/prd/PRD-001.md)。
 - 技术选型：[docs/architecture/ADR-001-macos-app-stack.md](docs/architecture/ADR-001-macos-app-stack.md)。
-- v2.4.0 只有在自动化、候选 DMG 和全部人工门禁通过后才能发布；不得提前把候选状态写成已发布。
+- `v2.3.0` Release 继续保留，不得删除或覆盖。
 
 长期方向是在不重复实现 Solver 的前提下扩展 Windows 和 Android。本阶段不实现这两个平台。
 
@@ -48,7 +50,7 @@ src/hdu_snap/
 └── infrastructure/
 ```
 
-第一阶段的 `extension/`、FastAPI API、CLI、报表、兼容入口、requirements 文件和旧安装/启动脚本已在 v2.4.0 候选代码中删除，不得重新引入。版本化协议模型迁至 `hdu_snap.protocol`，必须完整保留 `solve_item`、`batch_complete`、`review_results`、`decision`、`error`、`batch_summary` 和 `review_results_ack` 的字段与解析语义。
+第一阶段的 `extension/`、FastAPI API、CLI、报表、兼容入口、requirements 文件和旧安装/启动脚本已在 v2.4.0 正式版中删除，不得重新引入。版本化协议模型迁至 `hdu_snap.protocol`，必须完整保留 `solve_item`、`batch_complete`、`review_results`、`decision`、`error`、`batch_summary` 和 `review_results_ack` 的字段与解析语义。
 
 ## 产品与数据不变量
 
@@ -90,6 +92,7 @@ src/hdu_snap/
 - 版本清单固定为 `https://raw.githubusercontent.com/awhg23/HDU-SNAP-update-manifest/main/manifest.json`。
 - 清单只接受 `schema_version=1`、合法 stable/test 频道、SemVer、ISO 时间、64 位 SHA-256 和 `https://github.com/awhg23/HDU-SNAP/releases/tag/<version>`。
 - 自动检查每 24 小时最多一次，手动检查不限；状态区分有新版本、已是最新和没有适用版本。
+- 手动检查必须显示检查中状态，并在成功、无适用版本或失败时给出明确反馈；检查中禁止重复请求。
 
 ## Sidecar 与 LLM 约束
 
@@ -138,9 +141,9 @@ npm run make:dmg
 
 构建必须确认：arm64、sidecar 可初始化、补丁基线逐字节一致、不含 FastAPI/Uvicorn/向量依赖/旧插件资源、`prepared` 不重复进入 `app.asar` 和 `Resources`、DMG 可只读挂载。
 
-## v2.4.0 最终人工门禁
+## v2.4.0 发布验收记录
 
-在创建正式 Tag/Release 前必须全部通过：
+以下门禁已于正式发布前全部通过：
 
 - 新本地用户首次引导、自检和可选 Key。
 - 登录跨重启保留，清除网页登录数据后退出。
@@ -152,13 +155,15 @@ npm run make:dmg
 - 从 v2.3.0 覆盖安装候选版，数据、Cookie、Key、补丁和备份正常。
 - 有权和无权用户打开私有 Release 的行为。
 
-## 发布顺序
+## 后续发布顺序
 
-1. 在当前重构分支完成、测试并推送。
+v2.4.0 已按以下顺序完成。后续版本继续遵循同一门禁：
+
+1. 在功能分支完成、测试并推送。
 2. 创建 PR，CI 全绿后普通合并到 `main`，禁止强制推送。
 3. 从合并后的同一提交构建候选 DMG。
 4. 用户使用该 DMG 完成人工门禁。
-5. 仅在验收通过后创建 `v2.4.0` Tag 和私有 Release，上传同一份 DMG。
+5. 仅在验收通过后创建对应版本 Tag 和私有 Release，上传同一份 DMG。
 6. 将实际发布时间、SHA-256 和 Release 链接写入公开清单。
 7. 后续文档 PR 更新正式包信息，并核对 `main`、Tag、Release、清单和工作区。
 
