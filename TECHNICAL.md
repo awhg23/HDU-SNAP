@@ -20,6 +20,8 @@ Electron 主进程
 
 Mac App 主路径不启动本地服务，也不监听端口。远程网页不能访问 Node、Electron API、Key 或 sidecar。Electron 与 Python 仅以逐行 JSON 通信；stdout 专用于协议，日志写入 stderr。
 
+产品官网位于 `website/`，是独立的 Sites 工程。页面仅展示产品定位、平台要求、下载入口和公开源码链接；正式 DMG 存于 `RELEASES` R2，下载路由支持 `GET`、`HEAD` 和单区间续传。对象不存在或元数据与发布记录不一致时返回 `503`，不跳转或回退到 GitHub。
+
 ## 2. Python 核心
 
 依赖方向固定为：
@@ -141,6 +143,11 @@ npm ci
 npm test
 npm run build
 npm run test:electron-exit
+
+cd ../website
+npm ci
+npm run lint
+npm test
 ```
 
 构建发布候选 DMG：
@@ -152,6 +159,6 @@ npm run make:dmg
 
 打包要求 Apple Silicon、macOS 13+、Xcode、Node 和 Python 3.10+。PyInstaller sidecar 不含 FastAPI、Uvicorn、Torch、Sentence Transformers 或 M3E 模型。`prepared` 资源只作为 `extraResource` 复制一次，不得同时进入 `app.asar`。
 
-CI 在 Ubuntu Python 3.10/3.12、macOS Python 3.10 和 Windows Python 3.10 上运行核心测试；桌面任务运行测试、构建和 `dist` 同步检查，macOS 额外执行 Electron 退出冒烟。CI 不访问真实账号、不调用 DeepSeek、不下载模型。
+CI 在 Ubuntu Python 3.10/3.12、macOS Python 3.10 和 Windows Python 3.10 上运行核心测试；桌面任务运行测试、构建和 `dist` 同步检查，macOS 额外执行 Electron 退出冒烟；官网任务使用 Node 22 运行 lint、路由测试和生产构建。CI 不访问真实账号、不调用 DeepSeek、不下载模型或正式 DMG。
 
-v2.4.0 已从 `main` 提交 `ff18bf9` 构建并验收同一份 DMG，[Tag 与私有 Release](https://github.com/awhg23/HDU-SNAP/releases/tag/v2.4.0)和公开清单均已发布。正式包大小为 `138,263,106` 字节，SHA-256 为 `4f42ab03d7b72576b59d630436413b828073d8531f7002b281ce83869bfc94bd`；v2.3.0 Release 继续保留。
+v2.4.0 已从 `main` 提交 `ff18bf9` 构建并验收同一份 DMG，[Tag 与公开 Release](https://github.com/awhg23/HDU-SNAP/releases/tag/v2.4.0)、公开清单和[独立下载页](https://hdu-snap.awhg23.chatgpt.site)均已发布。正式包大小为 `138,263,106` 字节，SHA-256 为 `4f42ab03d7b72576b59d630436413b828073d8531f7002b281ce83869bfc94bd`；v2.3.0 Release 继续保留。

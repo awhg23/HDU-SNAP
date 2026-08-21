@@ -8,7 +8,10 @@ HDU-SNAP 是 Apple Silicon、macOS 13+ 的自包含英语单词答题 App。用�
 
 - 当前稳定分支：`main`；功能修改通过独立分支和 PR 合入。
 - 当前正式版：`v2.4.0`，第二阶段已经完成，覆盖安装、真实答题和全部人工门禁均已通过。
+- 产品官网：`https://hdu-snap.awhg23.chatgpt.site`；正式下载不依赖 GitHub。
+- 公开仓库：`https://github.com/awhg23/HDU-SNAP`。
 - 正式 Release：`https://github.com/awhg23/HDU-SNAP/releases/tag/v2.4.0`。
+- 官网 DMG：`https://hdu-snap.awhg23.chatgpt.site/downloads/HDU-SNAP-v2.4.0.dmg`。
 - 正式 DMG：`138,263,106` 字节，SHA-256 为 `4f42ab03d7b72576b59d630436413b828073d8531f7002b281ce83869bfc94bd`。
 - 发布提交：`ff18bf9b7f970709940f0995bb0ad1e72bb7984b`；发布时间为 `2026-08-21T20:25:50Z`。
 - 第二阶段需求：[docs/prd/PRD-001.md](docs/prd/PRD-001.md)。
@@ -33,6 +36,11 @@ Electron 主进程
     → JSON Lines 标准输入/输出
     → src/hdu_snap/sidecar.py
     → Solver / 词典 / 补丁 / DeepSeek
+
+website/
+    → Sites 单页下载站
+    → RELEASES R2
+    → releases/v2.4.0/HDU-SNAP.dmg
 ```
 
 Mac App 不启动 FastAPI，不监听 HTTP/WebSocket 端口。网站只使用一份持久数据分区；不识别或记录姓名学号，不保存密码，不提供账号隔离。
@@ -67,6 +75,16 @@ src/hdu_snap/
 - `CET/Data.lexicon.cache.json` 是内置词典种子。
 - 用户数据位于 `~/Library/Application Support/HDU-SNAP/`，数据结构当前为 V3，升级前保留最近三份备份。
 - `runtime/`、`.models/`、`.venv/`、`.env`、依赖、数据库、日志、备份和生成报告不得进入版本控制。
+
+## 官网与下载不变量
+
+- 官网保持极简单页，核心文案固定为“我爱记单词自动化答题脚本”，保留系统要求、下载按钮和公开 GitHub 仓库链接。
+- 官网复用奶油纸、陶土、芥末黄和深橄榄风格，不加载远程字体、图片或分析脚本。
+- `website/.openai/hosting.json` 绑定 `RELEASES` R2，不使用 D1、账号、遥测或下载计数。
+- v2.4.0 的 R2 key 固定为 `releases/v2.4.0/HDU-SNAP.dmg`；下载路由支持 GET、HEAD 和单区间 Range。
+- R2 对象缺失或大小、SHA-256 元数据不匹配时返回 `503`，绝不跳转或回退到 GitHub。
+- DMG 不进入源码 Git；官网发布记录必须与正式包的文件名、大小和 SHA-256 一致。
+- App 内更新清单和 GitHub Release 链接保持现有机制，不因官网分发而修改。
 
 ## 桌面行为基线
 
@@ -122,6 +140,11 @@ npm ci
 npm test
 npm run build
 npm run test:electron-exit
+
+cd ../website
+npm ci
+npm run lint
+npm test
 ```
 
 日常真实站点验证必须先退出安装版，然后运行：
@@ -153,7 +176,7 @@ npm run make:dmg
 - 旧版补丁和 Key 迁入，重复迁移不重复写入。
 - 记录日期筛选、分页、CSV/JSON、诊断 ZIP 和敏感信息扫描。
 - 从 v2.3.0 覆盖安装候选版，数据、Cookie、Key、补丁和备份正常。
-- 有权和无权用户打开私有 Release 的行为。
+- 公开 Release 页面和官网独立下载入口均可匿名访问。
 
 ## 后续发布顺序
 
@@ -163,9 +186,10 @@ v2.4.0 已按以下顺序完成。后续版本继续遵循同一门禁：
 2. 创建 PR，CI 全绿后普通合并到 `main`，禁止强制推送。
 3. 从合并后的同一提交构建候选 DMG。
 4. 用户使用该 DMG 完成人工门禁。
-5. 仅在验收通过后创建对应版本 Tag 和私有 Release，上传同一份 DMG。
-6. 将实际发布时间、SHA-256 和 Release 链接写入公开清单。
-7. 后续文档 PR 更新正式包信息，并核对 `main`、Tag、Release、清单和工作区。
+5. 仅在验收通过后创建对应版本 Tag 和公开 Release，上传同一份 DMG。
+6. 将同一份 DMG 上传到官网 R2，核对文件大小和 SHA-256，并发布版本化下载路由。
+7. 将实际发布时间、SHA-256 和 Release 链接写入公开清单。
+8. 后续文档 PR 更新正式包信息，并核对 `main`、Tag、Release、清单、官网和工作区。
 
 ## 开放问题
 

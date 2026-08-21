@@ -8,15 +8,17 @@ HDU-SNAP 是一款本地运行的 macOS 英语单词答题工具。它把内嵌�
 
 ## 正式版下载
 
-- Release：[HDU-SNAP v2.4.0](https://github.com/awhg23/HDU-SNAP/releases/tag/v2.4.0)
-- DMG：[HDU-SNAP.dmg](https://github.com/awhg23/HDU-SNAP/releases/download/v2.4.0/HDU-SNAP.dmg)
+- 官网：[hdu-snap.awhg23.chatgpt.site](https://hdu-snap.awhg23.chatgpt.site)
+- DMG：[HDU-SNAP.dmg](https://hdu-snap.awhg23.chatgpt.site/downloads/HDU-SNAP-v2.4.0.dmg)
+- 公开源码：[awhg23/HDU-SNAP](https://github.com/awhg23/HDU-SNAP)
+- 历史发布记录：[HDU-SNAP v2.4.0](https://github.com/awhg23/HDU-SNAP/releases/tag/v2.4.0)
 - 系统：Apple Silicon、macOS 13+
 - 交付方式：未签名、未公证 DMG
 - 发布时间：`2026-08-21T20:25:50Z`
 - 文件大小：`138,263,106` 字节
 - SHA-256：`4f42ab03d7b72576b59d630436413b828073d8531f7002b281ce83869bfc94bd`
 
-源码和 DMG 位于私有仓库，下载者需要相应 GitHub 访问权限。首次运行方式见 [macOS 使用指南](MACOS_GUIDE.md)。
+官网从独立对象存储分发 DMG，不依赖 GitHub Release 下载链路。首次运行方式见 [macOS 使用指南](MACOS_GUIDE.md)。
 
 ## 产品能力
 
@@ -28,7 +30,7 @@ HDU-SNAP 是一款本地运行的 macOS 英语单词答题工具。它把内嵌�
 - 结果页可由用户逐题点击“记录错题”，也可手动添加或导入 JSON/JSONC 补丁。
 - 记录支持状态、起止日期筛选和每页 50 条分页；CSV/JSON 导出覆盖当前筛选的全部结果。
 - 诊断包只有在用户勾选隐私确认后才能导出，且排除密码、Cookie、会话令牌和 DeepSeek Key。
-- 版本检查读取固定的公开清单，只展示版本和私有 Release 链接，不保存 GitHub Token，也不自动下载或安装。
+- 版本检查读取固定的公开清单，只展示版本和公开 Release 记录，不保存 GitHub Token，也不自动下载或安装。
 
 App 不识别或保存姓名学号，不保存密码，不提供账号隔离、调试复盘、向量模型或逐题持久化。
 

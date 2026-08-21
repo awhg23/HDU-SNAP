@@ -54,6 +54,23 @@ jobs:
       - name: Verify committed desktop bundles are current
         run: git diff --exit-code -- dist
 
+  website:
+    name: Product download site
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+
   electron-exit:
     name: Electron exit smoke / macOS
     runs-on: macos-latest
