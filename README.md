@@ -1,8 +1,21 @@
 # HDU-SNAP
 
-HDU-SNAP 是一个本地运行的英语单词题自动化工具。第二阶段正在将 Python 答题核心和网页自动化整合为自包含的 Apple Silicon macOS App；第一阶段的 Python 后端与 Chrome 插件暂时保留，用于行为对照和回退。
+HDU-SNAP 是一个本地运行的英语单词题自动化工具。macOS App 2.3.0 已将 Python 答题核心和网页自动化整合为自包含的 Apple Silicon 应用并正式发布；第一阶段的 Python 后端与 Chrome 插件暂时保留，用于行为对照和回退。
 
 开发者可先阅读 [开发文件指南](docs/DEVELOPMENT_FILE_GUIDE.md)，了解每个文件属于命令行版、Chrome 插件、共享核心还是桌面版，以及是否可以删除或重新生成。
+
+## 正式版本下载
+
+当前正式版为 **HDU-SNAP v2.3.0**，覆盖安装和真实站点答题均已完成验收。
+
+- Release 页面：[HDU-SNAP v2.3.0](https://github.com/awhg23/HDU-SNAP/releases/tag/v2.3.0)
+- 安装包：[HDU-SNAP.dmg](https://github.com/awhg23/HDU-SNAP/releases/download/v2.3.0/HDU-SNAP.dmg)
+- 系统要求：Apple Silicon Mac、macOS 13 或更高版本
+- 安装包状态：未签名、未公证
+- 文件大小：`139,453,489` 字节
+- SHA-256：`074dcfec1d6774ae6100a3cbdfad02f6075d25f779a80c6ac6c5649f420857e0`
+
+仓库和 Release 均为私有内容，下载前需登录拥有本仓库访问权限的 GitHub 账号。首次打开未签名 App 时，请按照 [macOS 教程](./MACOS_GUIDE.md) 中的步骤手动允许运行。
 
 后端按照以下顺序选择答案：
 
@@ -13,7 +26,7 @@ HDU-SNAP 是一个本地运行的英语单词题自动化工具。第二阶段�
 
 无论使用 Mac App 还是旧插件，最后一题都只会选择答案，**不会自动提交**。
 
-## macOS App（第二阶段）
+## macOS App（2.3.0 正式版）
 
 要求 Apple Silicon 与 macOS 13+。运行时不依赖外部 Python、Node、Chrome 或浏览器插件，DeepSeek Key 仅保存到 macOS 钥匙串。
 
